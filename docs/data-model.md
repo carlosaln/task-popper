@@ -73,12 +73,16 @@ The score is recomputed on every sort — no caching, no stored scores.
 
 ## Task chunking (schedule interleaving)
 
-Tasks longer than `max_chunk_duration` (default 120 minutes) are automatically split into chunks for scheduling. This prevents a single long task from monopolizing the entire day.
+Tasks longer than `max_chunk_duration` (default 120 minutes) are dynamically split into chunks for scheduling. This prevents a single long task from monopolizing the entire day.
 
-**Algorithm:** Each chunk receives an interleave penalty on its effective criticality:
+**Dynamic sizing:** Chunks are sized to fit the available gap, not pre-sliced into fixed sizes. A 90-minute gap between a blocked period and end-of-day gets a 90-minute work session, not wasted because 120 minutes won't fit. Chunk sizes are:
+- Capped at `max_chunk_duration` (default 120 min)
+- Floored at `min_chunk_duration` (default 30 min) — unless the remaining work is smaller, in which case it places the remainder to finish the task
+
+**Interleaving:** The scheduler uses a `TaskBudget` that tracks remaining work per task. After placing a chunk, the task's effective criticality is penalized:
 
 ```
-effective_criticality = base_criticality + chunk_index * SPREAD_FACTOR
+effective_criticality = base_criticality + chunks_placed * SPREAD_FACTOR
 ```
 
 `SPREAD_FACTOR` is 1.0 (one priority-order step per chunk). This means:
@@ -95,7 +99,7 @@ This naturally handles edge cases:
 
 The `max_chunk_duration` config value serves double duty: it caps both individual long-task chunks and short-task bunch groups. Both represent "maximum continuous work time before a context switch."
 
-Chunked tasks display as `Task title [2/8] ~2h of 15h` in the schedule view.
+Chunked tasks display as `Task title [2/8] ~1h22m of 15h` in the schedule view.
 
 ## Duration parsing
 

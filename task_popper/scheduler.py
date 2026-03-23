@@ -18,17 +18,15 @@ SPREAD_FACTOR = 1.0
 
 
 @dataclass
-class TaskChunk:
-    """A scheduleable unit — either a whole task or one chunk of a longer task."""
+class TaskBudget:
+    """Tracks remaining scheduleable time for a task during scheduling."""
     task: Task
-    chunk_duration: int          # minutes to schedule for this chunk
-    chunk_index: int             # 0-based
-    total_chunks: int            # 1 for unchunked tasks
-    sort_key: float              # effective criticality for ordering
+    remaining: int          # minutes left to schedule
+    chunks_placed: int = 0  # how many chunks have already been placed
 
     @property
-    def is_chunked(self) -> bool:
-        return self.total_chunks > 1
+    def effective_criticality(self) -> float:
+        return self.task.criticality_score() + self.chunks_placed * SPREAD_FACTOR
 
 
 @dataclass
@@ -41,47 +39,6 @@ class ScheduleSlot:
     label: str = ""
     chunk_index: int | None = None      # set when this slot is a chunk of a longer task
     total_chunks: int | None = None     # set when this slot is a chunk of a longer task
-
-
-# ---------------------------------------------------------------------------
-# Chunking
-# ---------------------------------------------------------------------------
-
-def _chunk_tasks(tasks: list[Task], max_chunk: int) -> list[TaskChunk]:
-    """Split tasks into chunks of at most max_chunk minutes.
-
-    Each chunk gets an interleave penalty on its sort key so that other
-    tasks with similar criticality are scheduled between chunks.
-    """
-    chunks: list[TaskChunk] = []
-    for task in tasks:
-        dur = task.duration
-        if dur is None:
-            continue
-        base_crit = task.criticality_score()
-        if dur <= max_chunk:
-            chunks.append(TaskChunk(
-                task=task,
-                chunk_duration=dur,
-                chunk_index=0,
-                total_chunks=1,
-                sort_key=base_crit,
-            ))
-        else:
-            n = math.ceil(dur / max_chunk)
-            remaining = dur
-            for i in range(n):
-                chunk_dur = min(max_chunk, remaining)
-                remaining -= chunk_dur
-                chunks.append(TaskChunk(
-                    task=task,
-                    chunk_duration=chunk_dur,
-                    chunk_index=i,
-                    total_chunks=n,
-                    sort_key=base_crit + i * SPREAD_FACTOR,
-                ))
-    chunks.sort(key=lambda c: c.sort_key)
-    return chunks
 
 
 # ---------------------------------------------------------------------------
@@ -182,88 +139,132 @@ def _break_duration(task_duration_mins: int, percent: int) -> int:
     return max(1, math.ceil(task_duration_mins * percent / 100))
 
 
-def _fit_chunks(
-    chunks: list[TaskChunk],
+def _fit_dynamic(
+    budgets: list[TaskBudget],
     cursor: datetime,
     iv_end: datetime,
     break_percent: int,
     short_threshold: int,
-    max_chunk: int = 120,
-) -> tuple[list[ScheduleSlot], list[TaskChunk], datetime]:
+    max_chunk: int,
+    min_chunk: int,
+) -> tuple[list[ScheduleSlot], list[TaskBudget], datetime]:
     """
-    Place task chunks into [cursor, iv_end) respecting sort order.
+    Dynamically place task work into [cursor, iv_end).
 
-    Short tasks (chunk_duration <= short_threshold) that appear consecutively
-    are bunched back-to-back with a single break after the group.  A bunch is
-    capped at max_chunk minutes.  Regular chunks get their own break.
+    Instead of pre-slicing tasks into fixed chunks, this function sizes each
+    work session to fit the available gap: capped at max_chunk, floored at
+    min_chunk (unless the remaining work is smaller — then it places the
+    remainder as-is to finish the task).
 
-    Returns (slots_placed, remaining_chunks, new_cursor).
+    Short tasks (remaining <= short_threshold) are bunched back-to-back with
+    a single break after the group, capped at max_chunk.
+
+    After placing a chunk the budget list is re-sorted by effective
+    criticality (which penalises repeated chunks of the same task) so other
+    tasks get a chance before the next chunk.
+
+    Returns (slots_placed, remaining_budgets, new_cursor).
     """
     slots: list[ScheduleSlot] = []
-    remaining = list(chunks)
-    idx = 0
+    budgets = list(budgets)  # shallow copy — TaskBudget objects are shared/mutable
 
-    while idx < len(remaining):
-        chunk = remaining[idx]
-        is_short = chunk.chunk_duration <= short_threshold
+    while budgets:
+        available = int((iv_end - cursor).total_seconds() / 60)
+        if available < 1:
+            break
 
-        if is_short:
-            # Accumulate consecutive short chunks into a bunch (capped at max_chunk)
-            group: list[Task] = []
-            group_duration = 0
-            j = idx
-            while j < len(remaining):
-                c = remaining[j]
-                if c.chunk_duration > short_threshold:
-                    break  # Hit a regular chunk — stop bunching
-                candidate_end = cursor + timedelta(minutes=group_duration + c.chunk_duration)
-                would_exceed_cap = group_duration + c.chunk_duration > max_chunk and group
-                if candidate_end <= iv_end and not would_exceed_cap:
-                    group.append(c.task)
-                    group_duration += c.chunk_duration
+        # Re-sort by effective criticality each iteration
+        budgets.sort(key=lambda b: b.effective_criticality)
+
+        placed = False
+        idx = 0
+        while idx < len(budgets):
+            budget = budgets[idx]
+            is_short = budget.remaining <= short_threshold
+
+            if is_short:
+                # Bunch consecutive short-remaining tasks
+                group: list[Task] = []
+                group_duration = 0
+                j = idx
+                while j < len(budgets):
+                    b = budgets[j]
+                    if b.remaining > short_threshold:
+                        break  # hit a regular task — stop bunching
+                    if group_duration + b.remaining > max_chunk and group:
+                        break  # bunch cap reached
+                    if cursor + timedelta(minutes=group_duration + b.remaining) > iv_end:
+                        j += 1
+                        continue  # skip — doesn't fit, try next short task
+                    group.append(b.task)
+                    group_duration += b.remaining
+                    j += 1
+
+                if group:
+                    group_end = cursor + timedelta(minutes=group_duration)
+                    slots.append(ScheduleSlot(
+                        start=cursor, end=group_end, slot_type="task", group=group,
+                    ))
+                    cursor = group_end
+                    brk = _break_duration(group_duration, break_percent)
+                    brk_end = cursor + timedelta(minutes=brk)
+                    if brk_end <= iv_end:
+                        slots.append(ScheduleSlot(
+                            start=cursor, end=brk_end, slot_type="break",
+                        ))
+                        cursor = brk_end
+                    # Remove placed budgets
+                    placed_ids = {t.id for t in group}
+                    budgets = [b for b in budgets if b.task.id not in placed_ids]
+                    placed = True
+                    break  # restart outer loop to re-sort
                 else:
-                    pass  # skip — doesn't fit
-                j += 1
+                    idx = j
+                    continue
+            else:
+                # Regular / chunked task — size the chunk dynamically
+                chunk_dur = min(max_chunk, budget.remaining, available)
 
-            if group:
-                group_end = cursor + timedelta(minutes=group_duration)
+                # Apply minimum chunk floor: skip if this would create a
+                # tiny partial session, but allow if it finishes the task.
+                if chunk_dur < min_chunk and chunk_dur < budget.remaining:
+                    idx += 1
+                    continue
+
+                chunk_end = cursor + timedelta(minutes=chunk_dur)
+                total_est = math.ceil(
+                    budget.task.duration / max_chunk  # type: ignore[operator]
+                ) if budget.task.duration and budget.task.duration > max_chunk else 1
+                is_chunked = total_est > 1
+
                 slots.append(ScheduleSlot(
-                    start=cursor, end=group_end, slot_type="task", group=group,
+                    start=cursor, end=chunk_end, slot_type="task",
+                    task=budget.task,
+                    chunk_index=budget.chunks_placed if is_chunked else None,
+                    total_chunks=total_est if is_chunked else None,
                 ))
-                cursor = group_end
-                brk = _break_duration(group_duration, break_percent)
+                cursor = chunk_end
+
+                brk = _break_duration(chunk_dur, break_percent)
                 brk_end = cursor + timedelta(minutes=brk)
                 if brk_end <= iv_end:
-                    slots.append(ScheduleSlot(start=cursor, end=brk_end, slot_type="break"))
+                    slots.append(ScheduleSlot(
+                        start=cursor, end=brk_end, slot_type="break",
+                    ))
                     cursor = brk_end
-                # Remove placed chunks from remaining
-                placed_set = set(id(t) for t in group)
-                remaining = [c for c in remaining if id(c.task) not in placed_set]
-                continue
-            else:
-                idx = j
-                continue
-        else:
-            # Regular chunk
-            chunk_end = cursor + timedelta(minutes=chunk.chunk_duration)
-            if chunk_end > iv_end:
-                idx += 1
-                continue
-            slots.append(ScheduleSlot(
-                start=cursor, end=chunk_end, slot_type="task", task=chunk.task,
-                chunk_index=chunk.chunk_index if chunk.is_chunked else None,
-                total_chunks=chunk.total_chunks if chunk.is_chunked else None,
-            ))
-            cursor = chunk_end
-            brk = _break_duration(chunk.chunk_duration, break_percent)
-            brk_end = cursor + timedelta(minutes=brk)
-            if brk_end <= iv_end:
-                slots.append(ScheduleSlot(start=cursor, end=brk_end, slot_type="break"))
-                cursor = brk_end
-            remaining.pop(idx)
-            continue
 
-    return slots, remaining, cursor
+                budget.remaining -= chunk_dur
+                budget.chunks_placed += 1
+                if budget.remaining <= 0:
+                    budgets.pop(idx)
+
+                placed = True
+                break  # restart outer loop to re-sort
+
+        if not placed:
+            break
+
+    return slots, budgets, cursor
 
 
 # ---------------------------------------------------------------------------
@@ -319,18 +320,21 @@ def build_schedule(
     scheduleable = [t for t in tasks if not t.completed and t.duration is not None]
     unscheduleable = [t for t in tasks if not t.completed and t.duration is None]
 
-    # Chunk long tasks and sort by effective criticality
-    all_chunks = _chunk_tasks(scheduleable, config.max_chunk_duration)
-
-    # Partition into normal vs low-priority based on unique tasks (not chunks).
-    # A task is "normal" if it falls within the top N% by criticality.
+    # Sort by criticality and partition into normal vs low-priority
     scheduleable_sorted = sorted(scheduleable, key=lambda t: t.criticality_score())
     n = len(scheduleable_sorted)
     cutoff = max(1, math.ceil(n * config.low_priority_threshold))
     normal_task_ids = {t.id for t in scheduleable_sorted[:cutoff]}
 
-    normal_chunks = [c for c in all_chunks if c.task.id in normal_task_ids]
-    low_chunks = [c for c in all_chunks if c.task.id not in normal_task_ids]
+    # Create mutable budgets (state carries across passes)
+    normal_budgets = [
+        TaskBudget(task=t, remaining=t.duration)  # type: ignore[arg-type]
+        for t in scheduleable_sorted[:cutoff]
+    ]
+    low_budgets = [
+        TaskBudget(task=t, remaining=t.duration)  # type: ignore[arg-type]
+        for t in scheduleable_sorted[cutoff:]
+    ]
 
     placed_slots: list[ScheduleSlot] = []
 
@@ -352,52 +356,54 @@ def build_schedule(
             free.append((cursor, iv_e))
         return free
 
-    # --- Pass 1: fill normal intervals with normal-priority chunks ---
+    fit_args = (
+        config.break_percent, config.short_task_threshold,
+        config.max_chunk_duration, config.min_chunk_duration,
+    )
+
+    # --- Pass 1: fill normal intervals with normal-priority budgets ---
     for iv_s, iv_e, tag in scheduleable_intervals:
         if tag != "normal":
             continue
-        new_slots, normal_chunks, _ = _fit_chunks(
-            normal_chunks, iv_s, iv_e,
-            config.break_percent, config.short_task_threshold, config.max_chunk_duration,
+        new_slots, normal_budgets, _ = _fit_dynamic(
+            normal_budgets, iv_s, iv_e, *fit_args,
         )
         placed_slots.extend(new_slots)
 
-    # --- Pass 2: fill leftover normal-interval capacity with low-priority chunks ---
+    # --- Pass 2: fill leftover normal-interval capacity with low-priority budgets ---
     for iv_s, iv_e, tag in scheduleable_intervals:
         if tag != "normal":
             continue
         for free_s, free_e in _free_sub_intervals(iv_s, iv_e):
-            new_slots, low_chunks, _ = _fit_chunks(
-                low_chunks, free_s, free_e,
-                config.break_percent, config.short_task_threshold, config.max_chunk_duration,
+            new_slots, low_budgets, _ = _fit_dynamic(
+                low_budgets, free_s, free_e, *fit_args,
             )
             placed_slots.extend(new_slots)
 
     # --- Pass 3: fill low-burn intervals ---
-    # First: overflow normal-priority chunks that didn't fit in normal intervals.
+    # First: overflow normal-priority budgets that didn't fit in normal intervals.
     for iv_s, iv_e, tag in scheduleable_intervals:
         if tag != "low_burn":
             continue
-        new_slots, normal_chunks, _ = _fit_chunks(
-            normal_chunks, iv_s, iv_e,
-            config.break_percent, config.short_task_threshold, config.max_chunk_duration,
+        new_slots, normal_budgets, _ = _fit_dynamic(
+            normal_budgets, iv_s, iv_e, *fit_args,
         )
         placed_slots.extend(new_slots)
 
-    # Then: remaining low-priority chunks in leftover low-burn capacity.
+    # Then: remaining low-priority budgets in leftover low-burn capacity.
     for iv_s, iv_e, tag in scheduleable_intervals:
         if tag != "low_burn":
             continue
         for free_s, free_e in _free_sub_intervals(iv_s, iv_e):
-            new_slots, low_chunks, _ = _fit_chunks(
-                low_chunks, free_s, free_e,
-                config.break_percent, config.short_task_threshold, config.max_chunk_duration,
+            new_slots, low_budgets, _ = _fit_dynamic(
+                low_budgets, free_s, free_e, *fit_args,
             )
             placed_slots.extend(new_slots)
 
-    # Collect overflow: unplaced chunks -> unique tasks
-    overflow_chunk_task_ids = {c.task.id for c in normal_chunks + low_chunks}
-    overflow_tasks = [t for t in scheduleable if t.id in overflow_chunk_task_ids]
+    # Collect overflow: budgets with remaining time
+    overflow_tasks = [
+        b.task for b in normal_budgets + low_budgets if b.remaining > 0
+    ]
 
     # --- Assemble full timeline: add blocked periods and gaps ---
     all_slots = list(placed_slots)
