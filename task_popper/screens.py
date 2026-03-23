@@ -559,13 +559,13 @@ class _ScheduleSettingsModal(ModalScreen):
     """
 
     def __init__(self, day_start: time, day_end: time, break_pct: int,
-                 short_thresh: int, max_bunch: int, low_prio: float) -> None:
+                 short_thresh: int, max_chunk: int, low_prio: float) -> None:
         super().__init__()
         self._day_start = day_start
         self._day_end = day_end
         self._break_pct = break_pct
         self._short_thresh = short_thresh
-        self._max_bunch = max_bunch
+        self._max_chunk = max_chunk
         self._low_prio = low_prio
 
     def compose(self) -> ComposeResult:
@@ -579,8 +579,8 @@ class _ScheduleSettingsModal(ModalScreen):
             yield Input(value=str(self._break_pct), id="s-break-pct")
             yield Label("Short task threshold (min) — tasks ≤ this are bunched", classes="s-label")
             yield Input(value=str(self._short_thresh), id="s-short-thresh")
-            yield Label("Max bunch duration (min) — cap for back-to-back short tasks", classes="s-label")
-            yield Input(value=str(self._max_bunch), id="s-max-bunch")
+            yield Label("Max work chunk (min) — caps bunched short tasks and splits long ones", classes="s-label")
+            yield Input(value=str(self._max_chunk), id="s-max-chunk")
             yield Label("Low-priority cutoff (0.0–1.0)", classes="s-label")
             yield Input(value=str(self._low_prio), id="s-low-prio")
             yield Label("", id="settings-error")
@@ -642,11 +642,11 @@ class _ScheduleSettingsModal(ModalScreen):
             return
 
         try:
-            max_bunch = int(get("#s-max-bunch"))
-            assert max_bunch > 0
+            max_chunk = int(get("#s-max-chunk"))
+            assert max_chunk > 0
         except (ValueError, AssertionError):
-            err.update("[bold red]Max bunch must be a positive integer[/bold red]")
-            self.query_one("#s-max-bunch", Input).focus()
+            err.update("[bold red]Max chunk must be a positive integer[/bold red]")
+            self.query_one("#s-max-chunk", Input).focus()
             return
 
         try:
@@ -657,7 +657,7 @@ class _ScheduleSettingsModal(ModalScreen):
             self.query_one("#s-low-prio", Input).focus()
             return
 
-        self.dismiss((day_start, day_end, break_pct, short_thresh, max_bunch, low_prio))
+        self.dismiss((day_start, day_end, break_pct, short_thresh, max_chunk, low_prio))
 
 
 class ScheduleConfigScreen(Screen):
@@ -727,7 +727,7 @@ class ScheduleConfigScreen(Screen):
         self._day_end: time = config.extended_end or config.work_end
         self._break_pct: int = config.break_percent
         self._short_thresh: int = config.short_task_threshold
-        self._max_bunch: int = config.max_bunch_duration
+        self._max_chunk: int = config.max_chunk_duration
         self._low_prio: float = config.low_priority_threshold
 
     def compose(self) -> ComposeResult:
@@ -816,7 +816,7 @@ class ScheduleConfigScreen(Screen):
             f" Day: {_fmt_time(self._day_start)}–{_fmt_time(self._day_end)}"
             f"  |  Break: {self._break_pct}%"
             f"  |  Short ≤{self._short_thresh}m"
-            f"  |  Bunch ≤{self._max_bunch}m"
+            f"  |  Chunk ≤{self._max_chunk}m"
             f"  |  Low-prio: {int(self._low_prio * 100)}%"
             f"  [dim]o: edit[/dim]"
         )
@@ -870,13 +870,13 @@ class ScheduleConfigScreen(Screen):
         def on_result(result) -> None:
             if result is None:
                 return
-            day_start, day_end, break_pct, short_thresh, max_bunch, low_prio = result
+            day_start, day_end, break_pct, short_thresh, max_chunk, low_prio = result
             old_start, old_end = self._day_start, self._day_end
             self._day_start = day_start
             self._day_end = day_end
             self._break_pct = break_pct
             self._short_thresh = short_thresh
-            self._max_bunch = max_bunch
+            self._max_chunk = max_chunk
             self._low_prio = low_prio
 
             if day_start != old_start or day_end != old_end:
@@ -893,7 +893,7 @@ class ScheduleConfigScreen(Screen):
         self.app.push_screen(
             _ScheduleSettingsModal(
                 self._day_start, self._day_end,
-                self._break_pct, self._short_thresh, self._max_bunch, self._low_prio,
+                self._break_pct, self._short_thresh, self._max_chunk, self._low_prio,
             ),
             on_result,
         )
@@ -924,7 +924,7 @@ class ScheduleConfigScreen(Screen):
             extended_end=None,
             break_percent=self._break_pct,
             short_task_threshold=self._short_thresh,
-            max_bunch_duration=self._max_bunch,
+            max_chunk_duration=self._max_chunk,
             low_priority_threshold=self._low_prio,
             blocked=blocked,
             low_burn=low_burn,
@@ -948,7 +948,7 @@ class ScheduleConfigScreen(Screen):
         self._day_end = default.extended_end or default.work_end
         self._break_pct = default.break_percent
         self._short_thresh = default.short_task_threshold
-        self._max_bunch = default.max_bunch_duration
+        self._max_chunk = default.max_chunk_duration
         self._low_prio = default.low_priority_threshold
         self._config = default
         self._cursor = 0

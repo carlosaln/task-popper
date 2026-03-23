@@ -8,8 +8,10 @@ task_popper/
 ├── __main__.py       — entry point; calls TaskPopperApp().run()
 ├── models.py         — Task dataclass + criticality scoring
 ├── store.py          — TaskStore: JSON persistence, sorting, mutations
-├── widgets.py        — TaskRow, PriorityRow, EditTaskModal, date parsing/formatting utilities
-├── screens.py        — PriorityScreen: full-screen priority reordering view
+├── config.py         — ScheduleConfig, TimeBlock dataclasses + JSON persistence
+├── scheduler.py      — build_schedule(): task chunking, interleaving, and time-slot placement
+├── widgets.py        — TaskRow, PriorityRow, ScheduleRow, EditTaskModal, date/tag/duration parsing
+├── screens.py        — PriorityScreen, ScheduleScreen, ScheduleConfigScreen
 └── app.py            — TaskPopperApp: layout, keybindings, actions, view refresh
 ```
 
@@ -23,6 +25,11 @@ store.py  (in-memory list + JSON file)
    │  uses
    ▼
 models.py  (Task dataclass, criticality_score())
+
+scheduler.py  (chunking + time-slot placement)
+   │  uses
+   ▼
+config.py  (ScheduleConfig + TimeBlock)
 
 widgets.py  (pure UI components, no store access)
 ```
@@ -43,6 +50,8 @@ TaskPopperApp
 `EditTaskModal` is pushed as a `ModalScreen` over the main screen and dismissed with a 3-tuple result.
 
 `PriorityScreen` is pushed as a full `Screen` via `push_screen`. It shares the same `TaskStore` instance as the main app. On dismiss, the main app's `_refresh_view()` is called so the main list re-sorts by `criticality_score()` with the updated `priority_order` values.
+
+`ScheduleScreen` builds a daily timeline by calling `build_schedule()` from `scheduler.py`. It displays task slots, breaks, blocked periods, and gaps. Long tasks appear as multiple chunked slots (e.g. `[2/8]`). The `ScheduleConfigScreen` provides a timeline editor for configuring blocked/low-burn periods and schedule parameters.
 
 ## State management
 

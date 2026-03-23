@@ -27,10 +27,6 @@ The `Task` dataclass has reserved (commented-out) fields:
 - `dependencies: list[str]` — IDs of tasks that must complete before this one.
 - Blocked tasks could be visually dimmed and excluded from criticality sort until unblocked.
 
-### Tags
-- `tags: list[str]` — free-form labels.
-- Enable filtering the list by tag (e.g. `t` to filter by tag).
-
 ## UI improvements
 
 - **Inline editing** — edit title directly in the list without opening a modal.

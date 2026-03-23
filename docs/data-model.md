@@ -9,6 +9,8 @@
 | `description` | `str` | Optional. Displayed dim below title. Default `""`. |
 | `priority_order` | `int` | Lower = higher priority. Reflects the user's manual ordering. |
 | `due_date` | `str \| None` | ISO 8601 date: `"YYYY-MM-DD"`. `None` when unset. |
+| `duration` | `int \| None` | Estimated duration in minutes. Parsed from title suffix (e.g. `2h30m`). `None` when unset. |
+| `tags` | `list[str]` | Free-form labels extracted from `#hashtags` in the title. |
 | `completed` | `bool` | `False` by default. Toggled by `shift+enter`. |
 | `completed_at` | `str \| None` | ISO 8601 datetime when completed, `None` otherwise. |
 | `created_at` | `str` | ISO 8601 datetime (UTC) at creation. |
@@ -16,7 +18,6 @@
 Fields reserved for future use (commented out in `models.py`):
 - `parent_id: str | None` — for sub-tasks / checklists
 - `dependencies: list[str]` — task IDs this task depends on
-- `tags: list[str]` — free-form labels
 
 ## Serialization
 
@@ -32,6 +33,8 @@ The JSON file structure:
       "description": "OAuth redirect loop",
       "priority_order": 0,
       "due_date": "2026-03-25",
+      "duration": 120,
+      "tags": ["work", "urgent"],
       "completed": false,
       "completed_at": null,
       "created_at": "2026-03-22T10:00:00+00:00"
@@ -67,6 +70,36 @@ The score is recomputed on every sort — no caching, no stored scores.
 - `move_up()` / `move_down()` swap `priority_order` values between adjacent tasks.
 - `delete()` calls `_renumber()` to restore contiguity.
 - Completed tasks are excluded from the active list and do not affect `priority_order` of active tasks.
+
+## Task chunking (schedule interleaving)
+
+Tasks longer than `max_chunk_duration` (default 120 minutes) are automatically split into chunks for scheduling. This prevents a single long task from monopolizing the entire day.
+
+**Algorithm:** Each chunk receives an interleave penalty on its effective criticality:
+
+```
+effective_criticality = base_criticality + chunk_index * SPREAD_FACTOR
+```
+
+`SPREAD_FACTOR` is 1.0 (one priority-order step per chunk). This means:
+
+- Chunk 1 of a task keeps its original criticality
+- Chunk 2 has the same effective criticality as the next-priority task
+- Chunk 3 matches the task two priority positions below
+- ...and so on
+
+This naturally handles edge cases:
+- **Similar-criticality tasks:** chunks interleave evenly with other tasks
+- **Dominant task (much higher criticality):** all chunks still schedule first, because even penalized chunks remain more critical than everything else
+- **Short tasks (≤ short_task_threshold):** never chunked; grouped into bunches instead, also capped at `max_chunk_duration`
+
+The `max_chunk_duration` config value serves double duty: it caps both individual long-task chunks and short-task bunch groups. Both represent "maximum continuous work time before a context switch."
+
+Chunked tasks display as `Task title [2/8] ~2h of 15h` in the schedule view.
+
+## Duration parsing
+
+`parse_duration(title)` in `widgets.py` extracts duration from the last word of the title. Recognized formats: `30m`, `3h`, `1h30m`, `2h15m`. Duration is stored in minutes on the `Task.duration` field. Tasks without duration are not scheduleable.
 
 ## Due date parsing
 

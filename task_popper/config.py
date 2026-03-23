@@ -29,7 +29,7 @@ class ScheduleConfig:
     extended_end: time | None = None          # None = no extended day
     break_percent: int = 15                   # % of task duration for breaks
     short_task_threshold: int = 15            # minutes; tasks ≤ this are bunched
-    max_bunch_duration: int = 120            # max minutes for a single short-task bunch
+    max_chunk_duration: int = 120            # max continuous work minutes (caps both bunches and long-task chunks)
     low_priority_threshold: float = 0.6      # top N% are normal, rest are low-priority
     blocked: list[TimeBlock] = field(default_factory=list)
     low_burn: list[TimeBlock] = field(default_factory=list)
@@ -42,7 +42,7 @@ def _config_to_dict(config: ScheduleConfig) -> dict:
         "extended_end": config.extended_end.strftime("%H:%M") if config.extended_end else None,
         "break_percent": config.break_percent,
         "short_task_threshold": config.short_task_threshold,
-        "max_bunch_duration": config.max_bunch_duration,
+        "max_chunk_duration": config.max_chunk_duration,
         "low_priority_threshold": config.low_priority_threshold,
         "blocked": [
             {"start": b.start.strftime("%H:%M"), "end": b.end.strftime("%H:%M"), "label": b.label}
@@ -99,7 +99,8 @@ def load_schedule_config(path: Path | None = None) -> ScheduleConfig:
         extended_end=_parse_time(extended_end_raw) if extended_end_raw else None,
         break_percent=int(data.get("break_percent", 15)),
         short_task_threshold=int(data.get("short_task_threshold", 15)),
-        max_bunch_duration=int(data.get("max_bunch_duration", 120)),
+        # Migrate: old configs may have max_bunch_duration instead of max_chunk_duration
+        max_chunk_duration=int(data.get("max_chunk_duration", data.get("max_bunch_duration", 120))),
         low_priority_threshold=float(data.get("low_priority_threshold", 0.6)),
         blocked=blocked,
         low_burn=low_burn,

@@ -564,8 +564,16 @@ class ScheduleRow(Static):
                     task = slot.task
                     if task:
                         text.append(task.title, style="bold")
+                        if slot.chunk_index is not None and slot.total_chunks is not None:
+                            text.append(
+                                f"  [{slot.chunk_index + 1}/{slot.total_chunks}]",
+                                style="bold magenta",
+                            )
                         if task.duration:
-                            text.append(f"  ~{_format_duration(task.duration)}", style="dim")
+                            slot_mins = int((slot.end - slot.start).total_seconds() / 60)
+                            text.append(f"  ~{_format_duration(slot_mins)}", style="dim")
+                            if slot.total_chunks and slot.total_chunks > 1:
+                                text.append(f" of {_format_duration(task.duration)}", style="dim")
                         if task.due_date:
                             label, style = _format_due(task.due_date)
                             text.append(f"  {label}", style=style)
