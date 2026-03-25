@@ -232,9 +232,11 @@ def _fit_dynamic(
                     continue
 
                 chunk_end = cursor + timedelta(minutes=chunk_dur)
+                # Use remaining time (not original duration) for chunk count
+                remaining_total = budget.remaining + chunk_dur  # remaining before this chunk
                 total_est = math.ceil(
-                    budget.task.duration / max_chunk  # type: ignore[operator]
-                ) if budget.task.duration and budget.task.duration > max_chunk else 1
+                    remaining_total / max_chunk
+                ) if remaining_total > max_chunk else 1
                 is_chunked = total_est > 1
 
                 slots.append(ScheduleSlot(
@@ -327,13 +329,17 @@ def build_schedule(
     normal_task_ids = {t.id for t in scheduleable_sorted[:cutoff]}
 
     # Create mutable budgets (state carries across passes)
+    # Use remaining time (duration - time_spent) so partially completed tasks
+    # only get scheduled for their remaining work.
     normal_budgets = [
-        TaskBudget(task=t, remaining=t.duration)  # type: ignore[arg-type]
+        TaskBudget(task=t, remaining=t.duration - t.time_spent)  # type: ignore[arg-type]
         for t in scheduleable_sorted[:cutoff]
+        if t.duration - t.time_spent > 0  # type: ignore[operator]
     ]
     low_budgets = [
-        TaskBudget(task=t, remaining=t.duration)  # type: ignore[arg-type]
+        TaskBudget(task=t, remaining=t.duration - t.time_spent)  # type: ignore[arg-type]
         for t in scheduleable_sorted[cutoff:]
+        if t.duration - t.time_spent > 0  # type: ignore[operator]
     ]
 
     placed_slots: list[ScheduleSlot] = []

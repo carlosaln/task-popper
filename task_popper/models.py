@@ -22,6 +22,7 @@ class Task:
     priority_order: int = 0          # lower index = higher priority
     due_date: Optional[str] = None   # ISO 8601 date string, e.g. "2025-12-31"
     duration: Optional[int] = None   # duration in minutes, parsed from title suffix
+    time_spent: int = 0              # minutes of work already completed (for chunked progress)
     tags: list[str] = field(default_factory=list)
     completed: bool = False
     completed_at: Optional[str] = None
@@ -38,6 +39,7 @@ class Task:
             "priority_order": self.priority_order,
             "due_date": self.due_date,
             "duration": self.duration,
+            "time_spent": self.time_spent,
             "tags": self.tags,
             "completed": self.completed,
             "completed_at": self.completed_at,
@@ -53,6 +55,7 @@ class Task:
             priority_order=data.get("priority_order", 0),
             due_date=data.get("due_date"),
             duration=data.get("duration"),
+            time_spent=data.get("time_spent", 0),
             tags=data.get("tags", []),
             completed=data.get("completed", False),
             completed_at=data.get("completed_at"),

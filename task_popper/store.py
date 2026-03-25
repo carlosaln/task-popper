@@ -121,6 +121,21 @@ class TaskStore:
         self.save()
         self._archive_task(task, now)
 
+    def complete_chunk(self, task_id: str, chunk_minutes: int) -> bool:
+        """Record partial progress on a chunked task.
+
+        Returns True if the task is now fully complete, False if work remains.
+        """
+        task = next((t for t in self._tasks if t.id == task_id), None)
+        if task is None:
+            return False
+        task.time_spent += chunk_minutes
+        if task.duration is not None and task.time_spent >= task.duration:
+            self.complete(task_id)
+            return True
+        self.save()
+        return False
+
     def move_up(self, task_id: str) -> int:
         """Swap task with the one above it in priority order. Returns new index."""
         tasks = self.get_by_priority()

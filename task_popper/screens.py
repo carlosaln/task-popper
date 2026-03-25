@@ -450,9 +450,25 @@ class ScheduleScreen(Screen):
         elif slot.task:
             if slot.task.completed:
                 return
-            self.store.complete(slot.task.id)
-            slot.task.completed = True
-            self._refresh_view()
+            if slot.chunk_index is not None:
+                # Chunked task: complete only this chunk's worth of time
+                chunk_minutes = int((slot.end - slot.start).total_seconds() / 60)
+                fully_done = self.store.complete_chunk(slot.task.id, chunk_minutes)
+                if fully_done:
+                    slot.task.completed = True
+                # Remove this chunk from the schedule view
+                self._slots.pop(self.cursor_index)
+                # Also remove the break slot immediately after, if any
+                if (self.cursor_index < len(self._slots)
+                        and self._slots[self.cursor_index].slot_type == "break"):
+                    self._slots.pop(self.cursor_index)
+                if self.cursor_index >= len(self._slots) and self._slots:
+                    self.cursor_index = len(self._slots) - 1
+                self._refresh_view()
+            else:
+                self.store.complete(slot.task.id)
+                slot.task.completed = True
+                self._refresh_view()
 
     def action_reschedule(self) -> None:
         """Rebuild the schedule, only rescheduling from the current time onward."""
