@@ -18,7 +18,9 @@ from .config import (
     TagPreference,
     TimeBlock,
     _parse_time,
+    fmt_preferred_days,
     load_schedule_config,
+    parse_preferred_days,
     save_schedule_config,
 )
 from .store import TaskStore
@@ -748,8 +750,10 @@ class TagPreferencesModal(ModalScreen):
                 yield Input(placeholder="e.g. personal", id="tp-input-tag")
                 yield Label("Burn mode: normal / low_burn", classes="tp-field-label")
                 yield Input(placeholder="normal", id="tp-input-burn")
+                yield Label("Days: weekdays / weekends / mon,wed,fri / all (blank = any)", classes="tp-field-label")
+                yield Input(placeholder="e.g. weekdays  or  sat,sun  (blank = any day)", id="tp-input-days")
                 yield Label("Preferred times (HH:MM-HH:MM, optional)", classes="tp-field-label")
-                yield Input(placeholder="e.g. 18:00-21:00", id="tp-input-times")
+                yield Input(placeholder="e.g. 18:00-21:00  (blank = any time)", id="tp-input-times")
             yield Label("", id="tp-error")
             yield Label(" a add  d delete  esc close", id="tp-footer")
             with Horizontal(id="tp-buttons"):
@@ -765,14 +769,17 @@ class TagPreferencesModal(ModalScreen):
             container.mount(Label("[dim]No tag preferences configured.[/dim]"))
             return
         for i, pref in enumerate(self._prefs):
+            days_str = fmt_preferred_days(pref.preferred_days)
             times_str = ""
             if pref.preferred_times:
                 parts = [
                     f"{pt.start.strftime('%H:%M')}-{pt.end.strftime('%H:%M')}"
                     for pt in pref.preferred_times
                 ]
-                times_str = f"  times: {', '.join(parts)}"
-            text = f"#{pref.tag}  burn={pref.preferred_burn_mode}{times_str}"
+                times_str = "  " + ", ".join(parts)
+            else:
+                times_str = "  any time"
+            text = f"#{pref.tag}  {days_str}{times_str}  burn={pref.preferred_burn_mode}"
             css_class = "tp-row-selected" if i == self._cursor else "tp-row"
             container.mount(Label(text, classes=css_class))
 
@@ -802,6 +809,7 @@ class TagPreferencesModal(ModalScreen):
         err = self.query_one("#tp-error", Label)
         tag_input = self.query_one("#tp-input-tag", Input).value.strip().lstrip("#")
         burn_input = self.query_one("#tp-input-burn", Input).value.strip() or "normal"
+        days_input = self.query_one("#tp-input-days", Input).value.strip()
         times_input = self.query_one("#tp-input-times", Input).value.strip()
 
         if not tag_input:
@@ -814,10 +822,11 @@ class TagPreferencesModal(ModalScreen):
             self.query_one("#tp-input-burn", Input).focus()
             return
 
-        # Check for duplicate tag
-        if any(p.tag == tag_input for p in self._prefs):
-            err.update(f"[bold red]Tag '{tag_input}' already has a preference[/bold red]")
-            self.query_one("#tp-input-tag", Input).focus()
+        try:
+            preferred_days = parse_preferred_days(days_input)
+        except ValueError:
+            err.update("[bold red]Days: use weekdays, weekends, or e.g. mon,fri,sat[/bold red]")
+            self.query_one("#tp-input-days", Input).focus()
             return
 
         preferred_times: list[TimeBlock] = []
@@ -837,6 +846,7 @@ class TagPreferencesModal(ModalScreen):
         new_pref = TagPreference(
             tag=tag_input,
             preferred_burn_mode=burn_input,
+            preferred_days=preferred_days,
             preferred_times=preferred_times,
         )
         self._prefs.append(new_pref)
@@ -844,6 +854,7 @@ class TagPreferencesModal(ModalScreen):
         # Clear inputs
         self.query_one("#tp-input-tag", Input).value = ""
         self.query_one("#tp-input-burn", Input).value = ""
+        self.query_one("#tp-input-days", Input).value = ""
         self.query_one("#tp-input-times", Input).value = ""
         err.update("")
         self._refresh_list()
@@ -939,7 +950,7 @@ class ScheduleConfigScreen(Screen):
             yield Button("Reset to Default  [R]", variant="warning", id="cfg-btn-reset")
             yield Button("Cancel  [esc]", id="cfg-btn-cancel")
         yield Static(
-            " j/k 15m  J/K 1h  n normal  b block  l low-burn  o settings",
+            " j/k 15m  J/K 1h  n normal  b block  l low-burn  o settings  p tag prefs",
             id="cfg-footer",
         )
 

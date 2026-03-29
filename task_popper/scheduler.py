@@ -384,12 +384,26 @@ def build_schedule(
     ]
 
     # Apply tag-based burn mode preferences
-    tag_pref_map: dict[str, TagPreference] = {tp.tag: tp for tp in config.tag_preferences}
+    # Multiple TagPreference entries per tag are allowed (e.g. weekdays+evening, weekends+anytime)
+    tag_pref_map: dict[str, list[TagPreference]] = {}
+    for tp in config.tag_preferences:
+        tag_pref_map.setdefault(tp.tag, []).append(tp)
+
+    today_wd = today.weekday()  # 0=Mon…6=Sun
+
+    def _active_prefs(task: Task) -> list[TagPreference]:
+        """Return all preference entries for this task's tags that apply today (day matches)."""
+        result: list[TagPreference] = []
+        for tag in task.tags:
+            for pref in tag_pref_map.get(tag, []):
+                if not pref.preferred_days or today_wd in pref.preferred_days:
+                    result.append(pref)
+        return result
 
     def _preferred_burn_mode(task: Task) -> str:
-        for tag in task.tags:
-            if tag in tag_pref_map:
-                return tag_pref_map[tag].preferred_burn_mode
+        for pref in _active_prefs(task):
+            if pref.preferred_burn_mode == "low_burn":
+                return "low_burn"
         return "normal"
 
     # Re-split budgets based on tag preferences
@@ -407,18 +421,34 @@ def build_schedule(
     low_budgets = all_low
 
     def _budget_fits_interval(budget: TaskBudget, iv_s: datetime, iv_e: datetime) -> bool:
-        """Returns True if the task should be considered for this interval."""
-        for tag in budget.task.tags:
-            pref = tag_pref_map.get(tag)
-            if pref and pref.preferred_times:
-                # Check if ANY preferred time window overlaps with [iv_s, iv_e)
-                for pt in pref.preferred_times:
-                    pt_start = _to_dt(pt.start, iv_s.date())
-                    pt_end = _to_dt(pt.end, iv_s.date())
-                    if pt_start < iv_e and pt_end > iv_s:
-                        return True
-                return False  # has preferences but none overlap this interval
-        return True  # no preferences = fits any interval
+        """Returns True if the task should be considered for this interval.
+
+        A task has preferences if any of its tags appear in tag_pref_map.
+        - If it has preferences, it only fits intervals matched by at least one active entry
+          (day matches AND time window overlaps, or no time constraint on that entry).
+        - If it has no preferences at all, it fits any interval.
+        """
+        task_has_prefs = any(tag in tag_pref_map for tag in budget.task.tags)
+        if not task_has_prefs:
+            return True
+
+        active = _active_prefs(budget.task)
+        if not active:
+            # Has preferences but none apply today (wrong day) → defer
+            return False
+
+        for pref in active:
+            if not pref.preferred_times:
+                # Active today, no time restriction → fits any time in this interval
+                return True
+            # Check if any preferred time window overlaps [iv_s, iv_e)
+            for pt in pref.preferred_times:
+                pt_start = _to_dt(pt.start, iv_s.date())
+                pt_end = _to_dt(pt.end, iv_s.date())
+                if pt_start < iv_e and pt_end > iv_s:
+                    return True
+
+        return False  # active prefs exist but none match this interval's time
 
     placed_slots: list[ScheduleSlot] = []
 

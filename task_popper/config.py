@@ -22,12 +22,59 @@ class TimeBlock:
     label: str = ""
 
 
+_DAY_NAMES = {
+    "mon": 0, "monday": 0,
+    "tue": 1, "tuesday": 1,
+    "wed": 2, "wednesday": 2,
+    "thu": 3, "thursday": 3,
+    "fri": 4, "friday": 4,
+    "sat": 5, "saturday": 5,
+    "sun": 6, "sunday": 6,
+}
+
+_DAY_ABBREVS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def parse_preferred_days(text: str) -> list[int]:
+    """Parse a day spec string into a sorted list of weekday ints (0=Mon…6=Sun).
+
+    Accepts: "weekdays", "weekends", "all", blank, or comma-separated day names
+    e.g. "mon,wed,fri" or "sat,sun".
+    """
+    t = text.strip().lower()
+    if not t or t == "all":
+        return []
+    if t == "weekdays":
+        return [0, 1, 2, 3, 4]
+    if t == "weekends":
+        return [5, 6]
+    days: list[int] = []
+    for part in t.split(","):
+        part = part.strip()
+        if part in _DAY_NAMES:
+            d = _DAY_NAMES[part]
+            if d not in days:
+                days.append(d)
+    return sorted(days)
+
+
+def fmt_preferred_days(days: list[int]) -> str:
+    """Format a list of weekday ints back to a human-readable string."""
+    if not days:
+        return "any day"
+    if days == [0, 1, 2, 3, 4]:
+        return "weekdays"
+    if days == [5, 6]:
+        return "weekends"
+    return ",".join(_DAY_ABBREVS[d] for d in sorted(days))
+
+
 @dataclass
 class TagPreference:
     tag: str                              # the tag name (without #)
     preferred_burn_mode: str = "normal"   # "normal" or "low_burn"
     preferred_times: list[TimeBlock] = field(default_factory=list)
-    # preferred_days: future extension
+    preferred_days: list[int] = field(default_factory=list)  # 0=Mon…6=Sun, empty=any
 
 
 @dataclass
@@ -67,6 +114,7 @@ def _config_to_dict(config: ScheduleConfig) -> dict:
             {
                 "tag": tp.tag,
                 "preferred_burn_mode": tp.preferred_burn_mode,
+                "preferred_days": tp.preferred_days,
                 "preferred_times": [
                     {"start": pt.start.strftime("%H:%M"), "end": pt.end.strftime("%H:%M"), "label": pt.label}
                     for pt in tp.preferred_times
@@ -119,6 +167,7 @@ def load_schedule_config(path: Path | None = None) -> ScheduleConfig:
         TagPreference(
             tag=tp["tag"],
             preferred_burn_mode=tp.get("preferred_burn_mode", "normal"),
+            preferred_days=tp.get("preferred_days", []),
             preferred_times=[
                 TimeBlock(start=_parse_time(pt["start"]), end=_parse_time(pt["end"]), label=pt.get("label", ""))
                 for pt in tp.get("preferred_times", [])
