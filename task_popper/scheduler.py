@@ -191,7 +191,8 @@ def _fit_dynamic(
                 while j < len(budgets):
                     b = budgets[j]
                     if b.remaining > short_threshold:
-                        break  # hit a regular task — stop bunching
+                        j += 1
+                        continue  # skip regular tasks, keep looking for short ones to bunch
                     if group_duration + b.remaining > max_chunk and group:
                         break  # bunch cap reached
                     if cursor + timedelta(minutes=group_duration + b.remaining) > iv_end:
