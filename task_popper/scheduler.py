@@ -167,6 +167,7 @@ def _fit_dynamic(
     """
     slots: list[ScheduleSlot] = []
     budgets = list(budgets)  # shallow copy — TaskBudget objects are shared/mutable
+    accumulated_work_mins = 0
 
     while budgets:
         available = int((iv_end - cursor).total_seconds() / 60)
@@ -206,13 +207,15 @@ def _fit_dynamic(
                         start=cursor, end=group_end, slot_type="task", group=group,
                     ))
                     cursor = group_end
-                    brk = _break_duration(group_duration, break_percent)
+                    accumulated_work_mins += group_duration
+                    brk = _break_duration(accumulated_work_mins, break_percent)
                     brk_end = cursor + timedelta(minutes=brk)
                     if brk_end <= iv_end:
                         slots.append(ScheduleSlot(
                             start=cursor, end=brk_end, slot_type="break",
                         ))
                         cursor = brk_end
+                        accumulated_work_mins = 0
                     # Remove placed budgets
                     placed_ids = {t.id for t in group}
                     budgets = [b for b in budgets if b.task.id not in placed_ids]
@@ -246,14 +249,16 @@ def _fit_dynamic(
                     total_chunks=total_est if is_chunked else None,
                 ))
                 cursor = chunk_end
+                accumulated_work_mins += chunk_dur
 
-                brk = _break_duration(chunk_dur, break_percent)
+                brk = _break_duration(accumulated_work_mins, break_percent)
                 brk_end = cursor + timedelta(minutes=brk)
                 if brk_end <= iv_end:
                     slots.append(ScheduleSlot(
                         start=cursor, end=brk_end, slot_type="break",
                     ))
                     cursor = brk_end
+                    accumulated_work_mins = 0
 
                 budget.remaining -= chunk_dur
                 budget.chunks_placed += 1
@@ -468,5 +473,21 @@ def build_schedule(
             final.append(ScheduleSlot(start=cursor, end=day_window_end, slot_type="gap"))
     else:
         final = all_slots
+
+    # Re-number chunk_index for each task's chunks in ascending time order.
+    # Chunks may have been placed across multiple passes whose intervals are
+    # not necessarily ordered, so the index assigned at placement time can be
+    # wrong after the final sort.
+    from collections import defaultdict
+    chunked_by_task: dict = defaultdict(list)
+    for slot in final:
+        if slot.slot_type == "task" and slot.chunk_index is not None and slot.task is not None:
+            chunked_by_task[slot.task.id].append(slot)
+    for task_slots in chunked_by_task.values():
+        task_slots.sort(key=lambda s: s.start)
+        total = len(task_slots)
+        for new_idx, slot in enumerate(task_slots):
+            slot.chunk_index = new_idx
+            slot.total_chunks = total
 
     return final, overflow_tasks + unscheduleable

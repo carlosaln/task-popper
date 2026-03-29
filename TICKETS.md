@@ -43,15 +43,13 @@
 
 - [x] #005 bug: Break duration calculated from last task in block, not total block duration
       Added: 2026-03-29 | Priority: high | Done: 2026-03-29 | Commit: 8524465
-      Notes: Breaks should be sized based on the cumulative work block (e.g. 2h block →
-             appropriate break), not on the duration of the final task before the break.
-             e.g. 3×30min + 2×15min = ~2h block should get a full block-length break,
-             not a break sized for a 15min task.
+      Notes: Breaks are now sized from cumulative accumulated work since the last break,
+             not just the most recent task/chunk duration.
 
 - [x] #006 bug: Chunked task parts sometimes appear out of order in the schedule
       Added: 2026-03-29 | Priority: low | Done: 2026-03-29 | Commit: 8524465
-      Notes: e.g. [2/4] appears before [1/4] in the Today view. Chunks should always
-             be scheduled in ascending order.
+      Notes: Post-processing pass re-numbers chunk_index in start-time order after
+             all chunks are placed and sorted.
 
 ---
 
