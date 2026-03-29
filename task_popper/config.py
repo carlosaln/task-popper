@@ -23,6 +23,14 @@ class TimeBlock:
 
 
 @dataclass
+class TagPreference:
+    tag: str                              # the tag name (without #)
+    preferred_burn_mode: str = "normal"   # "normal" or "low_burn"
+    preferred_times: list[TimeBlock] = field(default_factory=list)
+    # preferred_days: future extension
+
+
+@dataclass
 class ScheduleConfig:
     work_start: time = field(default_factory=lambda: time(7, 0))
     work_end: time = field(default_factory=lambda: time(18, 0))
@@ -34,6 +42,7 @@ class ScheduleConfig:
     low_priority_threshold: float = 0.6      # top N% are normal, rest are low-priority
     blocked: list[TimeBlock] = field(default_factory=list)
     low_burn: list[TimeBlock] = field(default_factory=list)
+    tag_preferences: list[TagPreference] = field(default_factory=list)
 
 
 def _config_to_dict(config: ScheduleConfig) -> dict:
@@ -53,6 +62,17 @@ def _config_to_dict(config: ScheduleConfig) -> dict:
         "low_burn": [
             {"start": lb.start.strftime("%H:%M"), "end": lb.end.strftime("%H:%M"), "label": lb.label}
             for lb in config.low_burn
+        ],
+        "tag_preferences": [
+            {
+                "tag": tp.tag,
+                "preferred_burn_mode": tp.preferred_burn_mode,
+                "preferred_times": [
+                    {"start": pt.start.strftime("%H:%M"), "end": pt.end.strftime("%H:%M"), "label": pt.label}
+                    for pt in tp.preferred_times
+                ],
+            }
+            for tp in config.tag_preferences
         ],
     }
 
@@ -95,6 +115,18 @@ def load_schedule_config(path: Path | None = None) -> ScheduleConfig:
         for lb in data.get("low_burn", [])
     ]
 
+    tag_preferences = [
+        TagPreference(
+            tag=tp["tag"],
+            preferred_burn_mode=tp.get("preferred_burn_mode", "normal"),
+            preferred_times=[
+                TimeBlock(start=_parse_time(pt["start"]), end=_parse_time(pt["end"]), label=pt.get("label", ""))
+                for pt in tp.get("preferred_times", [])
+            ],
+        )
+        for tp in data.get("tag_preferences", [])
+    ]
+
     return ScheduleConfig(
         work_start=_parse_time(data.get("work_start", "07:00")),
         work_end=_parse_time(data.get("work_end", "18:00")),
@@ -107,4 +139,5 @@ def load_schedule_config(path: Path | None = None) -> ScheduleConfig:
         low_priority_threshold=float(data.get("low_priority_threshold", 0.6)),
         blocked=blocked,
         low_burn=low_burn,
+        tag_preferences=tag_preferences,
     )
