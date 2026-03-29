@@ -15,6 +15,7 @@ from .config import (
     ACTIVE_CONFIG_PATH,
     DEFAULT_CONFIG_PATH,
     ScheduleConfig,
+    TagPreference,
     TimeBlock,
     _parse_time,
     load_schedule_config,
@@ -661,6 +662,201 @@ class _ScheduleSettingsModal(ModalScreen):
         self.dismiss((day_start, day_end, break_pct, short_thresh, min_chunk, max_chunk, low_prio))
 
 
+class TagPreferencesModal(ModalScreen):
+    """Modal for viewing and editing per-tag scheduling preferences."""
+
+    DEFAULT_CSS = """
+    TagPreferencesModal {
+        align: center middle;
+    }
+    #tp-dialog {
+        padding: 1 2;
+        background: $surface;
+        border: thick $primary;
+        width: 64;
+        height: auto;
+        max-height: 80vh;
+    }
+    #tp-title {
+        text-align: center;
+        color: $primary;
+        margin-bottom: 1;
+        text-style: bold;
+    }
+    #tp-list {
+        height: auto;
+        max-height: 20;
+        overflow-y: auto;
+        border: solid $surface-lighten-1;
+        padding: 0 1;
+        margin-bottom: 1;
+    }
+    .tp-row {
+        height: 1;
+        color: $text;
+    }
+    .tp-row-selected {
+        height: 1;
+        background: $accent;
+        color: $text;
+    }
+    #tp-add-section {
+        height: auto;
+        margin-top: 1;
+    }
+    .tp-field-label {
+        color: $text-muted;
+        margin-top: 1;
+    }
+    #tp-error {
+        height: 1;
+        color: $error;
+        margin-top: 1;
+    }
+    #tp-footer {
+        height: 1;
+        color: $text-muted;
+        margin-top: 1;
+    }
+    #tp-buttons {
+        height: auto;
+        align: right middle;
+        margin-top: 1;
+    }
+    Button { margin-left: 1; }
+    """
+
+    BINDINGS = [
+        Binding("escape", "close", "Close", show=False),
+        Binding("a", "add_preference", "Add", show=True),
+        Binding("d", "delete_preference", "Delete", show=True),
+    ]
+
+    def __init__(self, tag_preferences: list[TagPreference]) -> None:
+        super().__init__()
+        self._prefs: list[TagPreference] = list(tag_preferences)
+        self._cursor: int = 0
+        self._adding: bool = False
+
+    def compose(self) -> ComposeResult:
+        with Container(id="tp-dialog"):
+            yield Label("Tag Preferences", id="tp-title")
+            yield Vertical(id="tp-list")
+            with Vertical(id="tp-add-section"):
+                yield Label("Add preference:", classes="tp-field-label")
+                yield Label("Tag name (without #)", classes="tp-field-label")
+                yield Input(placeholder="e.g. personal", id="tp-input-tag")
+                yield Label("Burn mode: normal / low_burn", classes="tp-field-label")
+                yield Input(placeholder="normal", id="tp-input-burn")
+                yield Label("Preferred times (HH:MM-HH:MM, optional)", classes="tp-field-label")
+                yield Input(placeholder="e.g. 18:00-21:00", id="tp-input-times")
+            yield Label("", id="tp-error")
+            yield Label(" a add  d delete  esc close", id="tp-footer")
+            with Horizontal(id="tp-buttons"):
+                yield Button("Close  [esc]", variant="primary", id="tp-btn-close")
+
+    def on_mount(self) -> None:
+        self._refresh_list()
+
+    def _refresh_list(self) -> None:
+        container = self.query_one("#tp-list", Vertical)
+        container.remove_children()
+        if not self._prefs:
+            container.mount(Label("[dim]No tag preferences configured.[/dim]"))
+            return
+        for i, pref in enumerate(self._prefs):
+            times_str = ""
+            if pref.preferred_times:
+                parts = [
+                    f"{pt.start.strftime('%H:%M')}-{pt.end.strftime('%H:%M')}"
+                    for pt in pref.preferred_times
+                ]
+                times_str = f"  times: {', '.join(parts)}"
+            text = f"#{pref.tag}  burn={pref.preferred_burn_mode}{times_str}"
+            css_class = "tp-row-selected" if i == self._cursor else "tp-row"
+            container.mount(Label(text, classes=css_class))
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "tp-btn-close":
+            self.action_close()
+
+    def on_key(self, event) -> None:
+        if event.key == "escape":
+            event.stop()
+            self.action_close()
+        elif event.key == "up" or event.key == "k":
+            event.stop()
+            if self._cursor > 0:
+                self._cursor -= 1
+                self._refresh_list()
+        elif event.key == "down" or event.key == "j":
+            event.stop()
+            if self._cursor < len(self._prefs) - 1:
+                self._cursor += 1
+                self._refresh_list()
+
+    def action_close(self) -> None:
+        self.dismiss(self._prefs)
+
+    def action_add_preference(self) -> None:
+        err = self.query_one("#tp-error", Label)
+        tag_input = self.query_one("#tp-input-tag", Input).value.strip().lstrip("#")
+        burn_input = self.query_one("#tp-input-burn", Input).value.strip() or "normal"
+        times_input = self.query_one("#tp-input-times", Input).value.strip()
+
+        if not tag_input:
+            err.update("[bold red]Tag name is required[/bold red]")
+            self.query_one("#tp-input-tag", Input).focus()
+            return
+
+        if burn_input not in ("normal", "low_burn"):
+            err.update("[bold red]Burn mode must be 'normal' or 'low_burn'[/bold red]")
+            self.query_one("#tp-input-burn", Input).focus()
+            return
+
+        # Check for duplicate tag
+        if any(p.tag == tag_input for p in self._prefs):
+            err.update(f"[bold red]Tag '{tag_input}' already has a preference[/bold red]")
+            self.query_one("#tp-input-tag", Input).focus()
+            return
+
+        preferred_times: list[TimeBlock] = []
+        if times_input:
+            try:
+                start_str, end_str = times_input.split("-", 1)
+                tb = TimeBlock(
+                    start=_parse_time(start_str.strip()),
+                    end=_parse_time(end_str.strip()),
+                )
+                preferred_times.append(tb)
+            except (ValueError, AttributeError):
+                err.update("[bold red]Times must be HH:MM-HH:MM (e.g. 18:00-21:00)[/bold red]")
+                self.query_one("#tp-input-times", Input).focus()
+                return
+
+        new_pref = TagPreference(
+            tag=tag_input,
+            preferred_burn_mode=burn_input,
+            preferred_times=preferred_times,
+        )
+        self._prefs.append(new_pref)
+        self._cursor = len(self._prefs) - 1
+        # Clear inputs
+        self.query_one("#tp-input-tag", Input).value = ""
+        self.query_one("#tp-input-burn", Input).value = ""
+        self.query_one("#tp-input-times", Input).value = ""
+        err.update("")
+        self._refresh_list()
+
+    def action_delete_preference(self) -> None:
+        if not self._prefs:
+            return
+        del self._prefs[self._cursor]
+        self._cursor = max(0, min(self._cursor, len(self._prefs) - 1))
+        self.query_one("#tp-error", Label).update("")
+        self._refresh_list()
+
+
 class ScheduleConfigScreen(Screen):
     """Timeline-based schedule editor. Navigate 15-min slots, mark as normal/low-burn/blocked."""
 
@@ -712,6 +908,7 @@ class ScheduleConfigScreen(Screen):
         Binding("b",    "set_blocked", "Block",    show=True),
         Binding("l",    "set_low_burn","Low-burn", show=True),
         Binding("o",    "open_settings","Settings",show=True),
+        Binding("p",    "tag_prefs",   "Tag Prefs",show=True),
         Binding("ctrl+s","save",       "Save",     show=True),
         Binding("S",    "save_default","Save Def.", show=True),
         Binding("R",    "reset_default","Reset",   show=True),
@@ -901,6 +1098,29 @@ class ScheduleConfigScreen(Screen):
             on_result,
         )
 
+    def action_tag_prefs(self) -> None:
+        def on_result(prefs) -> None:
+            if prefs is None:
+                return
+            self._config = ScheduleConfig(
+                work_start=self._config.work_start,
+                work_end=self._config.work_end,
+                extended_end=self._config.extended_end,
+                break_percent=self._config.break_percent,
+                short_task_threshold=self._config.short_task_threshold,
+                min_chunk_duration=self._config.min_chunk_duration,
+                max_chunk_duration=self._config.max_chunk_duration,
+                low_priority_threshold=self._config.low_priority_threshold,
+                blocked=self._config.blocked,
+                low_burn=self._config.low_burn,
+                tag_preferences=prefs,
+            )
+
+        self.app.push_screen(
+            TagPreferencesModal(self._config.tag_preferences),
+            on_result,
+        )
+
     # ------------------------------------------------------------------
     # Save / reset
     # ------------------------------------------------------------------
@@ -932,6 +1152,7 @@ class ScheduleConfigScreen(Screen):
             low_priority_threshold=self._low_prio,
             blocked=blocked,
             low_burn=low_burn,
+            tag_preferences=self._config.tag_preferences,
         )
 
     def action_save(self) -> None:

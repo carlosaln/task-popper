@@ -3,17 +3,18 @@
 ## Backlog
 <!-- New tickets go here. Format: - [ ] #ID TYPE: Title -->
 
-- [ ] #001 feature: Tag-based scheduling preferences (preferred days/times per tag)
-      Added: 2026-03-29 | Priority: critical
-      Notes: Each tag should have configurable preferred time slots (e.g. personal →
-             evenings/weekends) and optionally a preferred burn mode (normal/low-burn).
-             Applies to the Today/schedule view. Energy level is out of scope for now.
-
 ## In Progress
 <!-- Move here when actively working on it -->
 
 ## Done
 <!-- Move here when complete. Change [ ] to [x] -->
+
+- [x] #001 feature: Tag-based scheduling preferences (preferred days/times per tag)
+      Added: 2026-03-29 | Priority: critical | Done: 2026-03-29 | Commit: 259e8b5
+      Notes: TagPreference dataclass in config.py (tag, preferred_burn_mode, preferred_times).
+             Scheduler routes low_burn-tagged tasks to low-burn intervals; time-preference
+             filter defers tasks to matching intervals with fallback. TagPreferencesModal
+             added to ScheduleConfigScreen (key: p).
 
 - [x] #002 feature: Prioritization view should be a single continuous unpaged list
       Added: 2026-03-29 | Priority: high | Done: 2026-03-29 | Commit: 54df941

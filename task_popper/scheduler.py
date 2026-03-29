@@ -4,7 +4,7 @@ import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 
-from .config import ScheduleConfig, TimeBlock
+from .config import ScheduleConfig, TagPreference, TimeBlock
 from .models import Task
 
 
@@ -278,6 +278,28 @@ def _fit_dynamic(
 # Public API
 # ---------------------------------------------------------------------------
 
+def _partition_by_interval(
+    budgets: list[TaskBudget],
+    iv_s: datetime,
+    iv_e: datetime,
+    fits_fn,
+) -> tuple[list[TaskBudget], list[TaskBudget]]:
+    """
+    Split budgets into (preferred, deferred) for the given interval.
+
+    A budget is 'preferred' if fits_fn(budget, iv_s, iv_e) returns True.
+    A budget is 'deferred' otherwise (has preferred_times but none overlap).
+    """
+    preferred: list[TaskBudget] = []
+    deferred: list[TaskBudget] = []
+    for b in budgets:
+        if fits_fn(b, iv_s, iv_e):
+            preferred.append(b)
+        else:
+            deferred.append(b)
+    return preferred, deferred
+
+
 def build_schedule(
     tasks: list[Task],
     config: ScheduleConfig,
@@ -361,6 +383,43 @@ def build_schedule(
         if t.duration - t.time_spent > 0  # type: ignore[operator]
     ]
 
+    # Apply tag-based burn mode preferences
+    tag_pref_map: dict[str, TagPreference] = {tp.tag: tp for tp in config.tag_preferences}
+
+    def _preferred_burn_mode(task: Task) -> str:
+        for tag in task.tags:
+            if tag in tag_pref_map:
+                return tag_pref_map[tag].preferred_burn_mode
+        return "normal"
+
+    # Re-split budgets based on tag preferences
+    # A task is in low_budgets if: it's in the low-priority cutoff OR its tag preference is low_burn
+    all_normal: list[TaskBudget] = []
+    all_low: list[TaskBudget] = []
+    for b in normal_budgets:
+        if _preferred_burn_mode(b.task) == "low_burn":
+            all_low.append(b)
+        else:
+            all_normal.append(b)
+    for b in low_budgets:
+        all_low.append(b)
+    normal_budgets = all_normal
+    low_budgets = all_low
+
+    def _budget_fits_interval(budget: TaskBudget, iv_s: datetime, iv_e: datetime) -> bool:
+        """Returns True if the task should be considered for this interval."""
+        for tag in budget.task.tags:
+            pref = tag_pref_map.get(tag)
+            if pref and pref.preferred_times:
+                # Check if ANY preferred time window overlaps with [iv_s, iv_e)
+                for pt in pref.preferred_times:
+                    pt_start = _to_dt(pt.start, iv_s.date())
+                    pt_end = _to_dt(pt.end, iv_s.date())
+                    if pt_start < iv_e and pt_end > iv_s:
+                        return True
+                return False  # has preferences but none overlap this interval
+        return True  # no preferences = fits any interval
+
     placed_slots: list[ScheduleSlot] = []
 
     def _free_sub_intervals(
@@ -386,44 +445,75 @@ def build_schedule(
         config.max_chunk_duration, config.min_chunk_duration,
     )
 
+    def _run_pass(
+        budgets: list[TaskBudget],
+        intervals_tag: str,
+        use_free: bool,
+    ) -> tuple[list[TaskBudget], list[TaskBudget]]:
+        """
+        Run one scheduling pass over intervals of the given tag.
+
+        If use_free is True, uses _free_sub_intervals (fills leftover capacity).
+        Otherwise places directly into each interval's full span.
+
+        Returns (remaining_budgets, deferred_budgets).
+        Deferred budgets are those with preferred_times that didn't match any interval.
+        """
+        remaining = list(budgets)
+        deferred_ids: set = set()
+        deferred_map: dict = {}
+
+        for iv_s, iv_e, tag in scheduleable_intervals:
+            if tag != intervals_tag:
+                continue
+            sub_intervals = _free_sub_intervals(iv_s, iv_e) if use_free else [(iv_s, iv_e)]
+            for s, e in sub_intervals:
+                preferred, skipped = _partition_by_interval(remaining, s, e, _budget_fits_interval)
+                # Track deferred budgets (by id to avoid duplicates)
+                for b in skipped:
+                    if b.task.id not in deferred_ids:
+                        deferred_ids.add(b.task.id)
+                        deferred_map[b.task.id] = b
+                new_slots, leftover, _ = _fit_dynamic(preferred, s, e, *fit_args)
+                placed_slots.extend(new_slots)
+                # Remaining = leftover from this sub-interval + tasks that were skipped
+                remaining = leftover + skipped
+
+        deferred = [deferred_map[tid] for tid in deferred_ids if any(b.task.id == tid for b in remaining)]
+        remaining_non_deferred = [b for b in remaining if b.task.id not in deferred_ids]
+        return remaining_non_deferred, deferred
+
+    def _run_fallback(budgets: list[TaskBudget], intervals_tag: str) -> list[TaskBudget]:
+        """Place budgets (regardless of preferred_times) into free slots of the given tag."""
+        remaining = list(budgets)
+        for iv_s, iv_e, tag in scheduleable_intervals:
+            if tag != intervals_tag:
+                continue
+            for free_s, free_e in _free_sub_intervals(iv_s, iv_e):
+                new_slots, remaining, _ = _fit_dynamic(remaining, free_s, free_e, *fit_args)
+                placed_slots.extend(new_slots)
+        return remaining
+
     # --- Pass 1: fill normal intervals with normal-priority budgets ---
-    for iv_s, iv_e, tag in scheduleable_intervals:
-        if tag != "normal":
-            continue
-        new_slots, normal_budgets, _ = _fit_dynamic(
-            normal_budgets, iv_s, iv_e, *fit_args,
-        )
-        placed_slots.extend(new_slots)
+    normal_budgets, normal_deferred = _run_pass(normal_budgets, "normal", use_free=False)
+
+    # --- Pass 1b: fallback — place deferred normal budgets into leftover normal capacity ---
+    normal_deferred = _run_fallback(normal_deferred, "normal")
+    normal_budgets = normal_budgets + normal_deferred
 
     # --- Pass 2: fill leftover normal-interval capacity with low-priority budgets ---
-    for iv_s, iv_e, tag in scheduleable_intervals:
-        if tag != "normal":
-            continue
-        for free_s, free_e in _free_sub_intervals(iv_s, iv_e):
-            new_slots, low_budgets, _ = _fit_dynamic(
-                low_budgets, free_s, free_e, *fit_args,
-            )
-            placed_slots.extend(new_slots)
+    low_budgets, low_deferred = _run_pass(low_budgets, "normal", use_free=True)
 
-    # --- Pass 3: fill low-burn intervals ---
-    # First: overflow normal-priority budgets that didn't fit in normal intervals.
-    for iv_s, iv_e, tag in scheduleable_intervals:
-        if tag != "low_burn":
-            continue
-        new_slots, normal_budgets, _ = _fit_dynamic(
-            normal_budgets, iv_s, iv_e, *fit_args,
-        )
-        placed_slots.extend(new_slots)
+    # --- Pass 3: fill low-burn intervals with normal-priority overflow ---
+    normal_budgets, normal_deferred2 = _run_pass(normal_budgets, "low_burn", use_free=False)
+    normal_deferred2 = _run_fallback(normal_deferred2, "low_burn")
+    normal_budgets = normal_budgets + normal_deferred2
 
-    # Then: remaining low-priority budgets in leftover low-burn capacity.
-    for iv_s, iv_e, tag in scheduleable_intervals:
-        if tag != "low_burn":
-            continue
-        for free_s, free_e in _free_sub_intervals(iv_s, iv_e):
-            new_slots, low_budgets, _ = _fit_dynamic(
-                low_budgets, free_s, free_e, *fit_args,
-            )
-            placed_slots.extend(new_slots)
+    # --- Pass 3b: fill leftover low-burn capacity with low-priority budgets ---
+    low_budgets, low_deferred2 = _run_pass(low_budgets, "low_burn", use_free=True)
+    low_deferred = low_deferred + low_deferred2
+    low_deferred = _run_fallback(low_deferred, "low_burn")
+    low_budgets = low_budgets + low_deferred
 
     # Collect overflow: budgets with remaining time
     overflow_tasks = [
