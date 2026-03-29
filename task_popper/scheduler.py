@@ -524,8 +524,65 @@ def build_schedule(
                 placed_slots.extend(new_slots)
         return remaining
 
+    # --- Pre-pass: place timed tasks within their finish-by deadline ---
+    now_dt = datetime.now()
+
+    def _get_finish_by(budget: TaskBudget) -> "datetime | None":
+        t = budget.task
+        if not t.due_time:
+            return None
+        try:
+            h, m = map(int, t.due_time.split(":"))
+            dl = datetime.combine(today, time(h, m))
+            return dl if dl > now_dt else None
+        except (ValueError, AttributeError):
+            return None
+
+    timed_with_dl: list[tuple[TaskBudget, datetime]] = []
+    untimed_normal: list[TaskBudget] = []
+    untimed_low: list[TaskBudget] = []
+    for b in normal_budgets:
+        dl = _get_finish_by(b)
+        if dl is not None:
+            timed_with_dl.append((b, dl))
+        else:
+            untimed_normal.append(b)
+    for b in low_budgets:
+        dl = _get_finish_by(b)
+        if dl is not None:
+            timed_with_dl.append((b, dl))
+        else:
+            untimed_low.append(b)
+
+    # Earliest Deadline First
+    timed_with_dl.sort(key=lambda x: x[1])
+    timed_overflow: list[TaskBudget] = []
+
+    for budget, deadline in timed_with_dl:
+        capped = [
+            (iv_s, min(iv_e, deadline), tag)
+            for iv_s, iv_e, tag in scheduleable_intervals
+            if tag == "normal" and iv_s < deadline
+        ]
+        capped = [(s, e, t) for s, e, t in capped if s < e]
+
+        remaining_list = [budget]
+        for iv_s, iv_e, _ in capped:
+            for free_s, free_e in _free_sub_intervals(iv_s, iv_e):
+                new_slots, remaining_list, _ = _fit_dynamic(remaining_list, free_s, free_e, *fit_args)
+                placed_slots.extend(new_slots)
+                if not remaining_list:
+                    break
+            if not remaining_list:
+                break
+        timed_overflow.extend(remaining_list)
+
+    normal_budgets = untimed_normal + timed_overflow
+    low_budgets = untimed_low
+
     # --- Pass 1: fill normal intervals with normal-priority budgets ---
-    normal_budgets, normal_deferred = _run_pass(normal_budgets, "normal", use_free=False)
+    # use_free=True so pre-pass slots (from due_time tasks) are respected
+    normal_budgets, normal_deferred = _run_pass(normal_budgets, "normal", use_free=True)
 
     # --- Pass 1b: fallback — place deferred normal budgets into leftover normal capacity ---
     normal_deferred = _run_fallback(normal_deferred, "normal")
@@ -535,7 +592,7 @@ def build_schedule(
     low_budgets, low_deferred = _run_pass(low_budgets, "normal", use_free=True)
 
     # --- Pass 3: fill low-burn intervals with normal-priority overflow ---
-    normal_budgets, normal_deferred2 = _run_pass(normal_budgets, "low_burn", use_free=False)
+    normal_budgets, normal_deferred2 = _run_pass(normal_budgets, "low_burn", use_free=True)
     normal_deferred2 = _run_fallback(normal_deferred2, "low_burn")
     normal_budgets = normal_budgets + normal_deferred2
 

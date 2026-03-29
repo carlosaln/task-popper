@@ -24,6 +24,7 @@ class Task:
     start_date: Optional[str] = None  # not-before constraint: "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM"
     duration: Optional[int] = None   # duration in minutes, parsed from title suffix
     time_spent: int = 0              # minutes of work already completed (for chunked progress)
+    due_time: Optional[str] = None   # HH:MM — finish-by time for today's schedule; ignored once expired
     tags: list[str] = field(default_factory=list)
     completed: bool = False
     completed_at: Optional[str] = None
@@ -42,6 +43,7 @@ class Task:
             "start_date": self.start_date,
             "duration": self.duration,
             "time_spent": self.time_spent,
+            "due_time": self.due_time,
             "tags": self.tags,
             "completed": self.completed,
             "completed_at": self.completed_at,
@@ -59,6 +61,7 @@ class Task:
             start_date=data.get("start_date"),
             duration=data.get("duration"),
             time_spent=data.get("time_spent", 0),
+            due_time=data.get("due_time"),
             tags=data.get("tags", []),
             completed=data.get("completed", False),
             completed_at=data.get("completed_at"),

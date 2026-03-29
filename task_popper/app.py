@@ -256,10 +256,10 @@ class TaskPopperApp(App):
         self._refresh_view()
 
     def action_new_task(self) -> None:
-        def on_result(result: tuple[str, str, str, int | None, list[str], str] | None) -> None:
+        def on_result(result: tuple[str, str, str, int | None, list[str], str, str] | None) -> None:
             if result is None:
                 return
-            title, desc, due, duration, tags, start_date = result
+            title, desc, due, duration, tags, start_date, due_time = result
             new_task = Task(
                 title=title,
                 description=desc,
@@ -267,6 +267,7 @@ class TaskPopperApp(App):
                 duration=duration,
                 tags=tags,
                 start_date=start_date or None,
+                due_time=due_time or None,
             )
             self.store.add(new_task)
             tasks = self.store.get_sorted()
@@ -281,16 +282,17 @@ class TaskPopperApp(App):
         if task is None:
             return
 
-        def on_result(result: tuple[str, str, str, int | None, list[str], str] | None) -> None:
+        def on_result(result: tuple[str, str, str, int | None, list[str], str, str] | None) -> None:
             if result is None:
                 return
-            title, desc, due, duration, tags, start_date = result
+            title, desc, due, duration, tags, start_date, due_time = result
             task.title = title
             task.description = desc
             task.due_date = due or None
             task.duration = duration
             task.tags = tags
             task.start_date = start_date or None
+            task.due_time = due_time or None
             self.store.update(task)
             self._refresh_view()
 
@@ -307,6 +309,7 @@ class TaskPopperApp(App):
                 description=task.description,
                 due_date=task.due_date or "",
                 start_date=task.start_date or "",
+                due_time=task.due_time or "",
                 heading="Edit Task",
             ),
             on_result,

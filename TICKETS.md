@@ -3,11 +3,20 @@
 ## Backlog
 <!-- New tickets go here. Format: - [ ] #ID TYPE: Title -->
 
+
 ## In Progress
 <!-- Move here when actively working on it -->
 
 ## Done
 <!-- Move here when complete. Change [ ] to [x] -->
+
+- [x] #008 feature: Task "finish by" time — same-day scheduling deadline (due_time)
+      Added: 2026-03-29 | Priority: high | Done: 2026-03-29
+      Notes: Add due_time: str | None ("HH:MM") to Task. Scheduler pre-pass (EDF order)
+             places timed tasks before their deadline, pulling from both normal and
+             low-priority pools. Expired constraints are silently ignored — task falls
+             back to general scheduling. Editable in EditTaskModal ("Finish by (today)"
+             field). Displayed in TaskRow and ScheduleRow when active.
 
 - [x] #001 feature: Tag-based scheduling preferences (preferred days/times per tag)
       Added: 2026-03-29 | Priority: critical | Done: 2026-03-29 | Commit: 259e8b5
@@ -62,4 +71,4 @@
 - **Priority**: `low`, `medium`, `high`, `critical`
 - **Notes**: Optional indented lines below the ticket line for context.
 
-Next ID: 008
+Next ID: 009

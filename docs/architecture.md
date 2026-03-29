@@ -47,7 +47,7 @@ TaskPopperApp
 └── Static#footer-hints      — static key hint bar
 ```
 
-`EditTaskModal` is pushed as a `ModalScreen` over the main screen and dismissed with a 3-tuple result.
+`EditTaskModal` is pushed as a `ModalScreen` over the main screen and dismissed with a 7-tuple result: `(title, desc, due, duration, tags, start_date, due_time)`.
 
 `PriorityScreen` is pushed as a full `Screen` via `push_screen`. It shares the same `TaskStore` instance as the main app. On dismiss, the main app's `_refresh_view()` is called so the main list re-sorts by `criticality_score()` with the updated `priority_order` values.
 

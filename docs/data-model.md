@@ -10,6 +10,7 @@
 | `priority_order` | `int` | Lower = higher priority. Reflects the user's manual ordering. |
 | `due_date` | `str \| None` | ISO 8601 date: `"YYYY-MM-DD"`. `None` when unset. |
 | `duration` | `int \| None` | Estimated duration in minutes. Parsed from title suffix (e.g. `2h30m`). `None` when unset. |
+| `due_time` | `str \| None` | Same-day "finish by" time: `"HH:MM"`. Scheduler pre-places this task before the deadline. Ignored (but not cleared) once the time has passed. |
 | `tags` | `list[str]` | Free-form labels extracted from `#hashtags` in the title. |
 | `completed` | `bool` | `False` by default. Toggled by `shift+enter`. |
 | `completed_at` | `str \| None` | ISO 8601 datetime when completed, `None` otherwise. |

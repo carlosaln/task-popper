@@ -194,6 +194,16 @@ def _format_duration(minutes: int) -> str:
         return f"{m}m"
 
 
+def _format_due_time(due_time: str) -> str:
+    """Format 'HH:MM' as a friendly 'by Xpm' string."""
+    try:
+        h, m = map(int, due_time.split(":"))
+        t = datetime(2000, 1, 1, h, m)
+        return f"by {t.strftime('%I:%M%p').lstrip('0').lower()}"
+    except (ValueError, AttributeError):
+        return f"by {due_time}"
+
+
 def _format_due(due_date: str) -> tuple[str, str]:
     """Return (label, style) for a stored due date string (YYYY-MM-DD or YYYY-MM-DDTHH:MM)."""
     has_time = "T" in due_date
@@ -277,6 +287,15 @@ class TaskRow(Static):
                         start_friendly = start_dt.strftime("%b %-d") if "T" not in self.data.start_date else start_dt.strftime("%b %-d %-I%p").lower()
                         text.append(f"  starts {start_friendly}", style="dim")
                 except ValueError:
+                    pass
+            if self.data.due_time:
+                try:
+                    h, m = map(int, self.data.due_time.split(":"))
+                    now = datetime.now()
+                    deadline_dt = datetime(now.year, now.month, now.day, h, m)
+                    if deadline_dt > now:
+                        text.append(f"  {_format_due_time(self.data.due_time)}", style="yellow")
+                except (ValueError, AttributeError):
                     pass
 
         second_line = self.data.description if not self.data.completed else ""
@@ -370,6 +389,11 @@ class EditTaskModal(ModalScreen):
         color: $text-muted;
     }
 
+    #due-time-label {
+        margin-top: 1;
+        color: $text-muted;
+    }
+
     #buttons {
         margin-top: 1;
         height: auto;
@@ -387,6 +411,7 @@ class EditTaskModal(ModalScreen):
         description: str = "",
         due_date: str = "",
         start_date: str = "",
+        due_time: str = "",
         heading: str = "New Task",
     ) -> None:
         super().__init__()
@@ -394,6 +419,7 @@ class EditTaskModal(ModalScreen):
         self._initial_desc = description
         self._initial_due = due_date
         self._initial_start = start_date
+        self._initial_due_time = due_time
         self._heading = heading
 
     def compose(self) -> ComposeResult:
@@ -423,6 +449,12 @@ class EditTaskModal(ModalScreen):
                 value=self._initial_start,
                 id="start-input",
                 placeholder="e.g. tomorrow, 2026-04-02, 2pm today",
+            )
+            yield Label("Finish by (today)", id="due-time-label")
+            yield Input(
+                value=self._initial_due_time,
+                id="due-time-input",
+                placeholder="e.g. 4pm, 16:00, noon",
             )
             with Horizontal(id="buttons"):
                 yield Button("Save  [enter]", variant="primary", id="btn-save")
@@ -498,7 +530,16 @@ class EditTaskModal(ModalScreen):
             else:
                 self.query_one("#start-input", Input).focus()
                 return
-        self.dismiss((title, desc, due, duration, tags, start_date))
+        due_time_raw = self.query_one("#due-time-input", Input).value.strip()
+        due_time = ""
+        if due_time_raw:
+            parsed_time = _parse_time_str(due_time_raw)
+            if parsed_time:
+                due_time = parsed_time
+            else:
+                self.query_one("#due-time-input", Input).focus()
+                return
+        self.dismiss((title, desc, due, duration, tags, start_date, due_time))
 
 
 class TagFilterModal(ModalScreen):
@@ -707,5 +748,7 @@ class ScheduleRow(Static):
                         if task.due_date:
                             label, style = _format_due(task.due_date)
                             text.append(f"  {label}", style=style)
+                        if task.due_time:
+                            text.append(f"  {_format_due_time(task.due_time)}", style="yellow")
 
         return text
