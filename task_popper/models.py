@@ -20,7 +20,8 @@ class Task:
     id: str = field(default_factory=_new_id)
     description: str = ""
     priority_order: int = 0          # lower index = higher priority
-    due_date: Optional[str] = None   # ISO 8601 date string, e.g. "2025-12-31"
+    due_date: Optional[str] = None    # ISO 8601 date or datetime string, e.g. "2025-12-31" or "2025-12-31T14:30"
+    start_date: Optional[str] = None  # not-before constraint: "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM"
     duration: Optional[int] = None   # duration in minutes, parsed from title suffix
     time_spent: int = 0              # minutes of work already completed (for chunked progress)
     tags: list[str] = field(default_factory=list)
@@ -38,6 +39,7 @@ class Task:
             "description": self.description,
             "priority_order": self.priority_order,
             "due_date": self.due_date,
+            "start_date": self.start_date,
             "duration": self.duration,
             "time_spent": self.time_spent,
             "tags": self.tags,
@@ -54,6 +56,7 @@ class Task:
             description=data.get("description", ""),
             priority_order=data.get("priority_order", 0),
             due_date=data.get("due_date"),
+            start_date=data.get("start_date"),
             duration=data.get("duration"),
             time_spent=data.get("time_spent", 0),
             tags=data.get("tags", []),

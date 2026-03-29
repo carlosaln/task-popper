@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import dateparser
 
@@ -30,6 +30,43 @@ def _next_weekday(target_wd: int, after: date) -> date:
     return after + timedelta(days=days)
 
 
+_TIME_WORDS = {
+    "midnight": "00:00",
+    "noon": "12:00",
+    "midday": "12:00",
+}
+
+_TIME_PATTERN = re.compile(
+    r"^(?P<base>.+?)\s+by\s+(?P<time>\S+)$",
+    re.IGNORECASE,
+)
+
+_CLOCK_PATTERN = re.compile(
+    r"^(?P<hour>\d{1,2})(?::(?P<min>\d{2}))?(?P<ampm>am|pm)?$",
+    re.IGNORECASE,
+)
+
+
+def _parse_time_str(time_str: str) -> str | None:
+    """Parse a time string like '8PM', '5pm', '14:30', 'noon' into 'HH:MM'. Returns None on failure."""
+    t = time_str.strip().lower()
+    if t in _TIME_WORDS:
+        return _TIME_WORDS[t]
+    m = _CLOCK_PATTERN.fullmatch(t)
+    if not m:
+        return None
+    hour = int(m.group("hour"))
+    minute = int(m.group("min")) if m.group("min") else 0
+    ampm = m.group("ampm")
+    if ampm == "pm" and hour != 12:
+        hour += 12
+    elif ampm == "am" and hour == 12:
+        hour = 0
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return None
+    return f"{hour:02d}:{minute:02d}"
+
+
 def _pre_parse(text: str) -> date | None:
     """Handle patterns dateparser misses: 'next <weekday>', 'this <weekday>'."""
     t = text.lower().strip()
@@ -49,21 +86,70 @@ def _pre_parse(text: str) -> date | None:
     return None
 
 
-def parse_due_date(text: str) -> date | None:
-    """Parse a due date from natural language or ISO format. Returns a date or None."""
+def parse_due_date(text: str) -> str | None:
+    """Parse a due date (with optional time) from natural language or ISO format.
+
+    Returns an ISO string: "YYYY-MM-DD" when no time is present, or
+    "YYYY-MM-DDTHH:MM" when a time component is parsed. Returns None on failure.
+    """
     text = text.strip()
     if not text:
         return None
-    # Strict ISO fast path
+
+    # Strict ISO datetime fast path: "2026-04-01T14:30"
+    try:
+        dt = datetime.fromisoformat(text)
+        return dt.strftime("%Y-%m-%dT%H:%M")
+    except ValueError:
+        pass
+
+    # Strict ISO date fast path: "2026-04-01"
+    try:
+        d = date.fromisoformat(text)
+        return d.isoformat()
+    except ValueError:
+        pass
+
+    # "... by <time>" pattern — split and parse each part separately
+    m = _TIME_PATTERN.match(text)
+    if m:
+        base_text = m.group("base").strip()
+        time_str = m.group("time").strip()
+        parsed_time = _parse_time_str(time_str)
+        if parsed_time:
+            # Parse the base date part
+            base_date = _parse_date_only(base_text)
+            if base_date is not None:
+                return f"{base_date.isoformat()}T{parsed_time}"
+
+    # Pre-parser for patterns dateparser misses
+    pre = _pre_parse(text)
+    if pre is not None:
+        return pre.isoformat()
+
+    # General natural language fallback
+    parsed = dateparser.parse(
+        text,
+        settings={
+            "PREFER_DATES_FROM": "future",
+            "RETURN_AS_TIMEZONE_AWARE": False,
+        },
+    )
+    return parsed.date().isoformat() if parsed else None
+
+
+def _parse_date_only(text: str) -> date | None:
+    """Internal helper: parse a date-only string (no time component)."""
+    text = text.strip()
+    if not text:
+        return None
     try:
         return date.fromisoformat(text)
     except ValueError:
         pass
-    # Pre-parser for patterns dateparser misses
     pre = _pre_parse(text)
     if pre is not None:
         return pre
-    # General natural language fallback
     parsed = dateparser.parse(
         text,
         settings={
@@ -109,27 +195,35 @@ def _format_duration(minutes: int) -> str:
 
 
 def _format_due(due_date: str) -> tuple[str, str]:
-    """Return (label, style) for a stored YYYY-MM-DD due date string."""
+    """Return (label, style) for a stored due date string (YYYY-MM-DD or YYYY-MM-DDTHH:MM)."""
+    has_time = "T" in due_date
     try:
-        due = date.fromisoformat(due_date)
+        if has_time:
+            due_dt = datetime.fromisoformat(due_date)
+            due = due_dt.date()
+            time_suffix = f" ({due_dt.strftime('%I:%M%p').lstrip('0').lower()})"
+        else:
+            due = date.fromisoformat(due_date)
+            time_suffix = ""
     except ValueError:
         return due_date, "dim"
     today = date.today()
     delta = (due - today).days
     if delta < 0:
-        label = f"overdue {-delta}d"
+        label = f"overdue {-delta}d{time_suffix}"
         style = "bold red"
     elif delta == 0:
-        label = "due today"
+        label = f"due today{time_suffix}"
         style = "bold yellow"
     elif delta == 1:
-        label = "due tomorrow"
+        label = f"due tomorrow{time_suffix}"
         style = "yellow"
     elif delta <= 7:
-        label = f"due in {delta}d"
+        label = f"due in {delta}d{time_suffix}"
         style = "dim"
     else:
-        label = f"due {due.strftime('%b %-d') if due.year == today.year else due.strftime('%b %-d %Y')}"
+        date_str = due.strftime("%b %-d") if due.year == today.year else due.strftime("%b %-d %Y")
+        label = f"due {date_str}{time_suffix}"
         style = "dim"
     return label, style
 
@@ -176,6 +270,14 @@ class TaskRow(Static):
                 text.append(f"  {label}", style=style)
             if self.data.duration:
                 text.append(f"  ~{_format_duration(self.data.duration)}", style="dim")
+            if self.data.start_date:
+                try:
+                    start_dt = datetime.fromisoformat(self.data.start_date)
+                    if start_dt > datetime.now():
+                        start_friendly = start_dt.strftime("%b %-d") if "T" not in self.data.start_date else start_dt.strftime("%b %-d %-I%p").lower()
+                        text.append(f"  starts {start_friendly}", style="dim")
+                except ValueError:
+                    pass
 
         second_line = self.data.description if not self.data.completed else ""
         if second_line:
@@ -263,6 +365,11 @@ class EditTaskModal(ModalScreen):
         padding: 0 1;
     }
 
+    #start-label {
+        margin-top: 1;
+        color: $text-muted;
+    }
+
     #buttons {
         margin-top: 1;
         height: auto;
@@ -279,12 +386,14 @@ class EditTaskModal(ModalScreen):
         title: str = "",
         description: str = "",
         due_date: str = "",
+        start_date: str = "",
         heading: str = "New Task",
     ) -> None:
         super().__init__()
         self._initial_title = title
         self._initial_desc = description
         self._initial_due = due_date
+        self._initial_start = start_date
         self._heading = heading
 
     def compose(self) -> ComposeResult:
@@ -306,9 +415,15 @@ class EditTaskModal(ModalScreen):
             yield Input(
                 value=self._initial_due,
                 id="due-input",
-                placeholder="e.g. tomorrow, next wednesday, 2026-04-01",
+                placeholder="e.g. today by 8pm, tomorrow, next wednesday, 2026-04-01",
             )
             yield Label("", id="due-preview")
+            yield Label("Start date (not before)", id="start-label")
+            yield Input(
+                value=self._initial_start,
+                id="start-input",
+                placeholder="e.g. tomorrow, 2026-04-02, 2pm today",
+            )
             with Horizontal(id="buttons"):
                 yield Button("Save  [enter]", variant="primary", id="btn-save")
                 yield Button("Cancel  [esc]", id="btn-cancel")
@@ -327,10 +442,16 @@ class EditTaskModal(ModalScreen):
         if not raw:
             preview.update("")
             return
-        parsed = parse_due_date(raw)
-        if parsed:
-            label, _ = _format_due(parsed.isoformat())
-            preview.update(f"  → {parsed.strftime('%A, %B %-d %Y')}  ({label})")
+        parsed_iso = parse_due_date(raw)
+        if parsed_iso:
+            label, _ = _format_due(parsed_iso)
+            if "T" in parsed_iso:
+                dt = datetime.fromisoformat(parsed_iso)
+                friendly = dt.strftime("%A, %B %-d %Y at %-I:%M%p").lower().capitalize()
+            else:
+                d = date.fromisoformat(parsed_iso)
+                friendly = d.strftime("%A, %B %-d %Y")
+            preview.update(f"  → {friendly}  ({label})")
         else:
             preview.update("  [bold red]couldn't parse date[/bold red]")
 
@@ -362,13 +483,22 @@ class EditTaskModal(ModalScreen):
         due_raw = self.query_one("#due-input", Input).value.strip()
         due = ""
         if due_raw:
-            parsed = parse_due_date(due_raw)
-            if parsed:
-                due = parsed.isoformat()
+            due_iso = parse_due_date(due_raw)
+            if due_iso:
+                due = due_iso
             else:
                 self.query_one("#due-input", Input).focus()
                 return
-        self.dismiss((title, desc, due, duration, tags))
+        start_raw = self.query_one("#start-input", Input).value.strip()
+        start_date = ""
+        if start_raw:
+            start_iso = parse_due_date(start_raw)
+            if start_iso:
+                start_date = start_iso
+            else:
+                self.query_one("#start-input", Input).focus()
+                return
+        self.dismiss((title, desc, due, duration, tags, start_date))
 
 
 class TagFilterModal(ModalScreen):

@@ -33,6 +33,15 @@ async with app.run_test(headless=True) as pilot:
 store = TaskStore(pathlib.Path(tmpdir) / "tasks.json")
 ```
 
+## Ticket tracking
+
+We use `TICKETS.md` at the project root as a file-based ticket board (no GitHub issues).
+- Read `TICKETS.md` at the start of any ticket-related conversation.
+- When adding a ticket, use the next available `#NNN` ID and increment the counter.
+- When completing a ticket, move it to Done, mark `[x]`, and add the commit hash if applicable.
+- Create a new branch for each ticket: `ticket/NNN-short-description` (e.g. `ticket/003-fix-cursor-jump`).
+- See [docs/how-to-do-tickets.md](docs/how-to-do-tickets.md) for full format details.
+
 ## Key conventions
 
 - Widget instance data uses `self.data` (not `self.task`) — Textual has an internal `.task` property on widgets.

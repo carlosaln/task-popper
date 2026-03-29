@@ -319,8 +319,22 @@ def build_schedule(
         scheduleable_intervals = list(intervals)
 
     # Filter tasks
-    scheduleable = [t for t in tasks if not t.completed and t.duration is not None]
-    unscheduleable = [t for t in tasks if not t.completed and t.duration is None]
+    now = datetime.now()
+
+    def _is_available(t: Task) -> bool:
+        """Return True if the task's start_date constraint is satisfied (or absent)."""
+        if t.start_date is None:
+            return True
+        try:
+            start_dt = datetime.fromisoformat(t.start_date)
+            return start_dt <= now
+        except ValueError:
+            return True
+
+    scheduleable = [t for t in tasks if not t.completed and t.duration is not None and _is_available(t)]
+    unscheduleable = [
+        t for t in tasks if not t.completed and (t.duration is None or not _is_available(t))
+    ]
 
     # Sort by criticality and partition into normal vs low-priority
     scheduleable_sorted = sorted(scheduleable, key=lambda t: t.criticality_score())
