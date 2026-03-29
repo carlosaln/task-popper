@@ -28,14 +28,14 @@
 <!-- Move here when complete. Change [ ] to [x] -->
 
 - [x] #003 feature: Support time component on due dates (e.g. "today by 8PM")
-      Added: 2026-03-29 | Priority: high | Done: 2026-03-29 | Commit: TBD
+      Added: 2026-03-29 | Priority: high | Done: 2026-03-29 | Commit: 5e90d44
       Notes: Extended parse_due_date to return str | None (ISO string). Parses
              "today by 8pm", "friday by noon", "2026-04-01T14:30" etc.
              _format_due updated to display time when present. due_date field
              now stores YYYY-MM-DDTHH:MM when a time is given.
 
 - [x] #004 feature: Add start date/time field to tasks (not-before constraint)
-      Added: 2026-03-29 | Priority: high | Done: 2026-03-29 | Commit: TBD
+      Added: 2026-03-29 | Priority: high | Done: 2026-03-29 | Commit: 5e90d44
       Notes: Added start_date field to Task (YYYY-MM-DD or YYYY-MM-DDTHH:MM).
              Scheduler filters out tasks whose start_date is in the future.
              EditTaskModal has a new "Start date (not before)" input field.
