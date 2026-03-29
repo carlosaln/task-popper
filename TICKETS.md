@@ -10,7 +10,7 @@
 <!-- Move here when complete. Change [ ] to [x] -->
 
 - [x] #001 feature: Tag-based scheduling preferences (preferred days/times per tag)
-      Added: 2026-03-29 | Priority: critical | Done: 2026-03-29 | Commit: (pending)
+      Added: 2026-03-29 | Priority: critical | Done: 2026-03-29 | Commit: 259e8b5
       Notes: Each tag can have a preferred_burn_mode (normal/low_burn) and optional
              preferred_times (list of TimeBlock). Burn mode routing re-sorts budgets
              before scheduling passes. Time-preference filter defers tasks to matching
