@@ -28,12 +28,12 @@
 <!-- Move here when complete. Change [ ] to [x] -->
 
 - [x] #002 feature: Prioritization view should be a single continuous unpaged list
-      Added: 2026-03-29 | Priority: high | Done: 2026-03-29 | Commit: TBD
+      Added: 2026-03-29 | Priority: high | Done: 2026-03-29 | Commit: 54df941
       Notes: When pressing `p` to enter prioritization view, show all tasks in one
              scrollable list (no pagination) so tasks can be freely reordered.
 
 - [x] #007 bug: Navigation breaks after completing a task in the Today view
-      Added: 2026-03-29 | Priority: high | Done: 2026-03-29 | Commit: TBD
+      Added: 2026-03-29 | Priority: high | Done: 2026-03-29 | Commit: 54df941
       Notes: After marking a task complete (within a group of quick tasks), up/down
              navigation stops working. Workaround is to reschedule or exit+re-enter
              the Today view. Should restore focus/navigation automatically after
