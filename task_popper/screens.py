@@ -3,7 +3,6 @@ from __future__ import annotations
 import itertools
 import time as _time
 from datetime import date, datetime, time, timedelta
-from math import ceil
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -21,7 +20,7 @@ from .config import (
     load_schedule_config,
     save_schedule_config,
 )
-from .store import PAGE_SIZE, TaskStore
+from .store import TaskStore
 from .widgets import GroupTaskRow, PriorityRow, ScheduleRow, TagFilterModal
 
 EMPTY_MSG = "[dim]No tasks.[/dim]"
@@ -37,11 +36,11 @@ class PriorityStatusBar(Static):
     }
     """
 
-    def update_status(self, page: int, total_pages: int, total_tasks: int, tag_filter: str | None = None) -> None:
-        page_info = f"Page {page + 1}/{total_pages}  •  {total_tasks} task{'s' if total_tasks != 1 else ''}  •  sorted by priority"
+    def update_status(self, total_tasks: int, tag_filter: str | None = None) -> None:
+        status = f"{total_tasks} task{'s' if total_tasks != 1 else ''}  •  sorted by priority"
         if tag_filter:
-            page_info += f"  •  filter: [bold cyan]#{tag_filter}[/bold cyan]"
-        self.update(page_info)
+            status += f"  •  filter: [bold cyan]#{tag_filter}[/bold cyan]"
+        self.update(status)
 
 
 class PriorityScreen(Screen):
@@ -60,6 +59,7 @@ class PriorityScreen(Screen):
     #priority-container {
         height: 1fr;
         padding: 0;
+        overflow-y: auto;
     }
 
     #priority-footer {
@@ -82,8 +82,6 @@ class PriorityScreen(Screen):
         Binding("j", "cursor_down", "Down", show=False),
         Binding("J", "task_move_down", "Move↓", show=False),
         Binding("K", "task_move_up", "Move↑", show=False),
-        Binding("ctrl+d", "page_down", "PgDn", show=True),
-        Binding("ctrl+u", "page_up", "PgUp", show=True),
         Binding("p", "go_back", "Back", show=True),
         Binding("escape", "go_back", "Back", show=False),
     ]
@@ -91,7 +89,6 @@ class PriorityScreen(Screen):
     def __init__(self, store: TaskStore) -> None:
         super().__init__()
         self.store = store
-        self.current_page: int = 0
         self.cursor_index: int = 0
         self._active_tag_filter: str | None = None
         self._awaiting_second_f: bool = False
@@ -115,50 +112,40 @@ class PriorityScreen(Screen):
             tasks = [t for t in tasks if self._active_tag_filter in t.tags]
         return tasks
 
-    def _filtered_page(self, page: int) -> list:
-        all_tasks = self._filtered_tasks()
-        start = page * PAGE_SIZE
-        return all_tasks[start : start + PAGE_SIZE]
-
     def _refresh_view(self) -> None:
         container = self.query_one("#priority-container", Vertical)
         container.remove_children()
 
         all_tasks = self._filtered_tasks()
         total = len(all_tasks)
-        total_pages = max(1, ceil(total / PAGE_SIZE))
 
-        if self.current_page >= total_pages:
-            self.current_page = max(0, total_pages - 1)
-
-        page_tasks = self._filtered_page(self.current_page)
-        max_cursor = max(0, len(page_tasks) - 1)
+        max_cursor = max(0, total - 1)
         if self.cursor_index > max_cursor:
             self.cursor_index = max_cursor
 
-        if not page_tasks:
+        if not all_tasks:
             container.mount(Label(EMPTY_MSG))
         else:
-            for i, task in enumerate(page_tasks):
+            for i, task in enumerate(all_tasks):
                 container.mount(PriorityRow(task, i, selected=(i == self.cursor_index)))
 
         self.query_one("#priority-status", PriorityStatusBar).update_status(
-            self.current_page, total_pages, total, self._active_tag_filter
+            total, self._active_tag_filter
         )
 
     def _current_task(self):
-        page_tasks = self._filtered_page(self.current_page)
-        if not page_tasks or self.cursor_index >= len(page_tasks):
+        all_tasks = self._filtered_tasks()
+        if not all_tasks or self.cursor_index >= len(all_tasks):
             return None
-        return page_tasks[self.cursor_index]
+        return all_tasks[self.cursor_index]
 
     def on_key(self, event) -> None:
         key = event.key
 
         if len(key) == 1 and key.isdigit():
             idx = int(key)
-            page_tasks = self._filtered_page(self.current_page)
-            if idx < len(page_tasks):
+            all_tasks = self._filtered_tasks()
+            if idx < len(all_tasks):
                 event.stop()
                 self.cursor_index = idx
                 self._refresh_view()
@@ -187,7 +174,6 @@ class PriorityScreen(Screen):
         def on_result(tag: str | None) -> None:
             if tag is not None:
                 self._active_tag_filter = tag
-                self.current_page = 0
                 self.cursor_index = 0
                 self._refresh_view()
 
@@ -197,24 +183,12 @@ class PriorityScreen(Screen):
         if self.cursor_index > 0:
             self.cursor_index -= 1
             self._refresh_view()
-        elif self.current_page > 0:
-            self.current_page -= 1
-            page_tasks = self._filtered_page(self.current_page)
-            self.cursor_index = max(0, len(page_tasks) - 1)
-            self._refresh_view()
 
     def action_cursor_down(self) -> None:
-        page_tasks = self._filtered_page(self.current_page)
-        if self.cursor_index < len(page_tasks) - 1:
+        all_tasks = self._filtered_tasks()
+        if self.cursor_index < len(all_tasks) - 1:
             self.cursor_index += 1
             self._refresh_view()
-        else:
-            total = len(self._filtered_tasks())
-            total_pages = max(1, ceil(total / PAGE_SIZE))
-            if self.current_page < total_pages - 1:
-                self.current_page += 1
-                self.cursor_index = 0
-                self._refresh_view()
 
     def action_task_move_up(self) -> None:
         task = self._current_task()
@@ -222,8 +196,7 @@ class PriorityScreen(Screen):
             return
         self.store.move_up(task.id)
         filtered = self._filtered_tasks()
-        new_idx = next((i for i, t in enumerate(filtered) if t.id == task.id), 0)
-        self.current_page, self.cursor_index = divmod(new_idx, PAGE_SIZE)
+        self.cursor_index = next((i for i, t in enumerate(filtered) if t.id == task.id), 0)
         self._refresh_view()
 
     def action_task_move_down(self) -> None:
@@ -232,23 +205,8 @@ class PriorityScreen(Screen):
             return
         self.store.move_down(task.id)
         filtered = self._filtered_tasks()
-        new_idx = next((i for i, t in enumerate(filtered) if t.id == task.id), 0)
-        self.current_page, self.cursor_index = divmod(new_idx, PAGE_SIZE)
+        self.cursor_index = next((i for i, t in enumerate(filtered) if t.id == task.id), 0)
         self._refresh_view()
-
-    def action_page_down(self) -> None:
-        total = len(self._filtered_tasks())
-        total_pages = max(1, ceil(total / PAGE_SIZE))
-        if self.current_page < total_pages - 1:
-            self.current_page += 1
-            self.cursor_index = 0
-            self._refresh_view()
-
-    def action_page_up(self) -> None:
-        if self.current_page > 0:
-            self.current_page -= 1
-            self.cursor_index = 0
-            self._refresh_view()
 
     def action_go_back(self) -> None:
         self.dismiss(None)
@@ -441,6 +399,17 @@ class ScheduleScreen(Screen):
                 return
             self.store.complete(task.id)
             task.completed = True
+            remaining = [t for t in slot.group if not t.completed]
+            if not remaining:
+                # All tasks in group done — collapse the expanded view
+                self._expanded_slot = None
+            else:
+                # Advance cursor to next non-completed task (wrap if needed)
+                next_idx = next(
+                    (i for i, t in enumerate(slot.group) if not t.completed),
+                    0,
+                )
+                self._expanded_cursor = next_idx
             self._refresh_view()
         elif slot.group:
             # Expand the group instead of completing
