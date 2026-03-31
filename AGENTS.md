@@ -33,10 +33,27 @@ async with app.run_test(headless=True) as pilot:
 store = TaskStore(pathlib.Path(tmpdir) / "tasks.json")
 ```
 
+## Ticket tracking
+
+We use `TICKETS.md` at the project root as a file-based ticket board (no GitHub issues).
+- Read `TICKETS.md` at the start of any ticket-related conversation.
+- When adding a ticket, use the next available `#NNN` ID and increment the counter.
+- When completing a ticket, move it to Done, mark `[x]`, and add the commit hash if applicable.
+- Create a new branch for each ticket: `ticket/NNN-short-description` (e.g. `ticket/003-fix-cursor-jump`).
+- See [docs/how-to-do-tickets.md](docs/how-to-do-tickets.md) for full format details.
+
+## README
+
+`README.md` is the user-facing docs. Keep it current whenever a feature is added or changed:
+- New task fields → add a row to the **Task fields** table.
+- New scheduling behavior → add a bullet to the **Scheduling** section.
+- New keyboard shortcuts → add rows to the relevant keybinding table.
+- Removed or renamed behavior → update or remove the corresponding entry.
+
 ## Key conventions
 
 - Widget instance data uses `self.data` (not `self.task`) — Textual has an internal `.task` property on widgets.
 - All mutations go through `TaskStore` methods, which auto-save on every call.
 - `_refresh_view()` is the single method that rebuilds the task list UI from store state. Call it after any mutation.
-- Modal results are 3-tuples `(title: str, desc: str, due: str)` — due is `""` when not set, `YYYY-MM-DD` when set.
+- Modal results are 7-tuples `(title, desc, due, duration, tags, start_date, due_time)` — string fields are `""` when not set.
 - Due dates are stored as `YYYY-MM-DD` ISO strings. Parsing from natural language happens only in the UI layer (`widgets.py`), never in the model or store.

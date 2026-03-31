@@ -88,7 +88,7 @@ Timeline-based day editor. Navigate 15-minute slots and mark them normal, low-bu
 | `tags` | `#hashtag` tokens extracted from title (e.g. `Fix login #work 1h`). |
 | `due_date` | Date or datetime: `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM`. Parsed from natural language in the edit modal (`tomorrow`, `next friday`, `today by 8pm`, `friday by noon`). |
 | `start_date` | Not-before constraint: task won't be scheduled before this date/time. Same format and parsing as `due_date`. |
-| `due_time` | Same-day "finish by" time: `4pm`, `16:00`, `noon`, etc. The scheduler pre-places this task before that time regardless of priority. Ignored (task returns to general pool) once the time has passed. |
+| `due_time` | Same-day pin time: `4pm`, `16:00`, `noon`, etc. The scheduler places this task starting exactly at that time, regardless of priority. Ignored (task returns to general pool) once the time has passed. |
 | `duration` | Estimated minutes, parsed from title suffix. Required for scheduling. |
 | `priority_order` | Position in the priority list (lower = higher priority). |
 | `completed` | Toggled via `x`. Completed tasks are archived weekly. |
@@ -103,7 +103,7 @@ The Today view builds a daily timeline using `build_schedule()`:
 - **Low-burn intervals** — periods of lower intensity (e.g. evenings). Lower-priority tasks are routed here first.
 - **Blocked periods** — marked unavailable; shown in the timeline but never filled with tasks.
 - **Start dates** — tasks with a future `start_date` are excluded from today's schedule.
-- **Finish-by times** — tasks with `due_time` set are placed before that time via a pre-pass (Earliest Deadline First). If the time has passed and the task is still incomplete, it falls back to normal scheduling.
+- **Pin times** — tasks with `due_time` set are placed starting exactly at that time via a pre-pass. If the time has passed and the task is still incomplete, it falls back to normal scheduling.
 
 ### Tag-based scheduling preferences
 

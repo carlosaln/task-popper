@@ -3,6 +3,25 @@
 ## Backlog
 <!-- New tickets go here. Format: - [ ] #ID TYPE: Title -->
 
+- [ ] #009 chore: Add comprehensive test suite for core modules
+      Added: 2026-03-30 | Priority: low
+      Notes: Cover TaskStore mutations, criticality scoring, scheduler edge cases, and parsing functions. Use pytest + Textual's headless testing framework.
+
+- [ ] #010 chore: Implement proper error handling in store.py and widgets.py
+      Added: 2026-03-30 | Priority: low
+      Notes: Add try/except blocks for JSON parsing failures, invalid date formats, and file I/O errors. Provide user-friendly error messages instead of tracebacks.
+
+- [ ] #011 chore: Consolidate configuration constants into config.py
+      Added: 2026-03-30 | Priority: low
+      Notes: Move PAGE_SIZE, default durations, and scheduler parameters from multiple files into a centralized Config dataclass loaded at startup.
+
+- [ ] #012 feature: Complete per-directory store resolution in store.py
+      Added: 2026-03-30 | Priority: low
+      Notes: Implement the commented plan to walk up from cwd looking for .task-popper/ directory, enabling project-specific task lists.
+
+- [ ] #013 docs: Document the rationale for manual _refresh_view() vs reactive
+      Added: 2026-03-30 | Priority: low
+      Notes: Explain in architecture.md why full rebuilds are used instead of Textual's reactive system, including performance trade-offs and simplicity benefits.
 
 ## In Progress
 <!-- Move here when actively working on it -->
@@ -71,4 +90,4 @@
 - **Priority**: `low`, `medium`, `high`, `critical`
 - **Notes**: Optional indented lines below the ticket line for context.
 
-Next ID: 009
+Next ID: 014

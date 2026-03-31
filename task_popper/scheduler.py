@@ -20,8 +20,9 @@ SPREAD_FACTOR = 1.0
 @dataclass
 class TaskBudget:
     """Tracks remaining scheduleable time for a task during scheduling."""
+
     task: Task
-    remaining: int          # minutes left to schedule
+    remaining: int  # minutes left to schedule
     chunks_placed: int = 0  # how many chunks have already been placed
 
     @property
@@ -33,17 +34,18 @@ class TaskBudget:
 class ScheduleSlot:
     start: datetime
     end: datetime
-    slot_type: str          # "task" | "break" | "blocked" | "gap"
+    slot_type: str  # "task" | "break" | "blocked" | "gap"
     task: Task | None = None
-    group: list[Task] = field(default_factory=list)   # for short-task bunches
+    group: list[Task] = field(default_factory=list)  # for short-task bunches
     label: str = ""
-    chunk_index: int | None = None      # set when this slot is a chunk of a longer task
-    total_chunks: int | None = None     # set when this slot is a chunk of a longer task
+    chunk_index: int | None = None  # set when this slot is a chunk of a longer task
+    total_chunks: int | None = None  # set when this slot is a chunk of a longer task
 
 
 # ---------------------------------------------------------------------------
 # Internal interval helpers
 # ---------------------------------------------------------------------------
+
 
 def _to_dt(t: time, today: date) -> datetime:
     return datetime.combine(today, t)
@@ -126,6 +128,7 @@ def _tag_intervals(
 # Core placement helpers
 # ---------------------------------------------------------------------------
 
+
 def _round_up_5(dt: datetime) -> datetime:
     """Round datetime up to the nearest 5-minute boundary."""
     excess = dt.minute % 5
@@ -195,7 +198,10 @@ def _fit_dynamic(
                         continue  # skip regular tasks, keep looking for short ones to bunch
                     if group_duration + b.remaining > max_chunk and group:
                         break  # bunch cap reached
-                    if cursor + timedelta(minutes=group_duration + b.remaining) > iv_end:
+                    if (
+                        cursor + timedelta(minutes=group_duration + b.remaining)
+                        > iv_end
+                    ):
                         j += 1
                         continue  # skip — doesn't fit, try next short task
                     group.append(b.task)
@@ -204,17 +210,26 @@ def _fit_dynamic(
 
                 if group:
                     group_end = cursor + timedelta(minutes=group_duration)
-                    slots.append(ScheduleSlot(
-                        start=cursor, end=group_end, slot_type="task", group=group,
-                    ))
+                    slots.append(
+                        ScheduleSlot(
+                            start=cursor,
+                            end=group_end,
+                            slot_type="task",
+                            group=group,
+                        )
+                    )
                     cursor = group_end
                     accumulated_work_mins += group_duration
                     brk = _break_duration(accumulated_work_mins, break_percent)
                     brk_end = cursor + timedelta(minutes=brk)
                     if brk_end <= iv_end:
-                        slots.append(ScheduleSlot(
-                            start=cursor, end=brk_end, slot_type="break",
-                        ))
+                        slots.append(
+                            ScheduleSlot(
+                                start=cursor,
+                                end=brk_end,
+                                slot_type="break",
+                            )
+                        )
                         cursor = brk_end
                         accumulated_work_mins = 0
                     # Remove placed budgets
@@ -237,27 +252,39 @@ def _fit_dynamic(
 
                 chunk_end = cursor + timedelta(minutes=chunk_dur)
                 # Use remaining time (not original duration) for chunk count
-                remaining_total = budget.remaining + chunk_dur  # remaining before this chunk
-                total_est = math.ceil(
-                    remaining_total / max_chunk
-                ) if remaining_total > max_chunk else 1
+                remaining_total = (
+                    budget.remaining + chunk_dur
+                )  # remaining before this chunk
+                total_est = (
+                    math.ceil(remaining_total / max_chunk)
+                    if remaining_total > max_chunk
+                    else 1
+                )
                 is_chunked = total_est > 1
 
-                slots.append(ScheduleSlot(
-                    start=cursor, end=chunk_end, slot_type="task",
-                    task=budget.task,
-                    chunk_index=budget.chunks_placed if is_chunked else None,
-                    total_chunks=total_est if is_chunked else None,
-                ))
+                slots.append(
+                    ScheduleSlot(
+                        start=cursor,
+                        end=chunk_end,
+                        slot_type="task",
+                        task=budget.task,
+                        chunk_index=budget.chunks_placed if is_chunked else None,
+                        total_chunks=total_est if is_chunked else None,
+                    )
+                )
                 cursor = chunk_end
                 accumulated_work_mins += chunk_dur
 
                 brk = _break_duration(accumulated_work_mins, break_percent)
                 brk_end = cursor + timedelta(minutes=brk)
                 if brk_end <= iv_end:
-                    slots.append(ScheduleSlot(
-                        start=cursor, end=brk_end, slot_type="break",
-                    ))
+                    slots.append(
+                        ScheduleSlot(
+                            start=cursor,
+                            end=brk_end,
+                            slot_type="break",
+                        )
+                    )
                     cursor = brk_end
                     accumulated_work_mins = 0
 
@@ -278,6 +305,7 @@ def _fit_dynamic(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def _partition_by_interval(
     budgets: list[TaskBudget],
@@ -322,7 +350,9 @@ def build_schedule(
 
     work_start_dt = _to_dt(config.work_start, today)
     work_end_dt = _to_dt(config.work_end, today)
-    day_end_dt = _to_dt(config.extended_end, today) if config.extended_end else work_end_dt
+    day_end_dt = (
+        _to_dt(config.extended_end, today) if config.extended_end else work_end_dt
+    )
 
     # Build tagged intervals (before blocking)
     intervals = _tag_intervals(
@@ -359,9 +389,15 @@ def build_schedule(
         except ValueError:
             return True
 
-    scheduleable = [t for t in tasks if not t.completed and t.duration is not None and _is_available(t)]
+    scheduleable = [
+        t
+        for t in tasks
+        if not t.completed and t.duration is not None and _is_available(t)
+    ]
     unscheduleable = [
-        t for t in tasks if not t.completed and (t.duration is None or not _is_available(t))
+        t
+        for t in tasks
+        if not t.completed and (t.duration is None or not _is_available(t))
     ]
 
     # Sort by criticality and partition into normal vs low-priority
@@ -421,7 +457,9 @@ def build_schedule(
     normal_budgets = all_normal
     low_budgets = all_low
 
-    def _budget_fits_interval(budget: TaskBudget, iv_s: datetime, iv_e: datetime) -> bool:
+    def _budget_fits_interval(
+        budget: TaskBudget, iv_s: datetime, iv_e: datetime
+    ) -> bool:
         """Returns True if the task should be considered for this interval.
 
         A task has preferences if any of its tags appear in tag_pref_map.
@@ -458,7 +496,11 @@ def build_schedule(
     ) -> list[tuple[datetime, datetime]]:
         """Return free sub-intervals within [iv_s, iv_e) after accounting for placed_slots."""
         used = sorted(
-            [(s.start, s.end) for s in placed_slots if s.start >= iv_s and s.end <= iv_e],
+            [
+                (s.start, s.end)
+                for s in placed_slots
+                if s.start >= iv_s and s.end <= iv_e
+            ],
             key=lambda x: x[0],
         )
         free: list[tuple[datetime, datetime]] = []
@@ -472,8 +514,10 @@ def build_schedule(
         return free
 
     fit_args = (
-        config.break_percent, config.short_task_threshold,
-        config.max_chunk_duration, config.min_chunk_duration,
+        config.break_percent,
+        config.short_task_threshold,
+        config.max_chunk_duration,
+        config.min_chunk_duration,
     )
 
     def _run_pass(
@@ -497,9 +541,13 @@ def build_schedule(
         for iv_s, iv_e, tag in scheduleable_intervals:
             if tag != intervals_tag:
                 continue
-            sub_intervals = _free_sub_intervals(iv_s, iv_e) if use_free else [(iv_s, iv_e)]
+            sub_intervals = (
+                _free_sub_intervals(iv_s, iv_e) if use_free else [(iv_s, iv_e)]
+            )
             for s, e in sub_intervals:
-                preferred, skipped = _partition_by_interval(remaining, s, e, _budget_fits_interval)
+                preferred, skipped = _partition_by_interval(
+                    remaining, s, e, _budget_fits_interval
+                )
                 # Track deferred budgets (by id to avoid duplicates)
                 for b in skipped:
                     if b.task.id not in deferred_ids:
@@ -510,79 +558,103 @@ def build_schedule(
                 # Remaining = leftover from this sub-interval + tasks that were skipped
                 remaining = leftover + skipped
 
-        deferred = [deferred_map[tid] for tid in deferred_ids if any(b.task.id == tid for b in remaining)]
+        deferred = [
+            deferred_map[tid]
+            for tid in deferred_ids
+            if any(b.task.id == tid for b in remaining)
+        ]
         remaining_non_deferred = [b for b in remaining if b.task.id not in deferred_ids]
         return remaining_non_deferred, deferred
 
-    def _run_fallback(budgets: list[TaskBudget], intervals_tag: str) -> list[TaskBudget]:
+    def _run_fallback(
+        budgets: list[TaskBudget], intervals_tag: str
+    ) -> list[TaskBudget]:
         """Place budgets (regardless of preferred_times) into free slots of the given tag."""
         remaining = list(budgets)
         for iv_s, iv_e, tag in scheduleable_intervals:
             if tag != intervals_tag:
                 continue
             for free_s, free_e in _free_sub_intervals(iv_s, iv_e):
-                new_slots, remaining, _ = _fit_dynamic(remaining, free_s, free_e, *fit_args)
+                new_slots, remaining, _ = _fit_dynamic(
+                    remaining, free_s, free_e, *fit_args
+                )
                 placed_slots.extend(new_slots)
         return remaining
 
-    # --- Pre-pass: place timed tasks within their finish-by deadline ---
+    # --- Pre-pass: place pinned tasks at their exact start time ---
     now_dt = datetime.now()
 
-    def _get_finish_by(budget: TaskBudget) -> "datetime | None":
+    def _get_pinned_time(budget: TaskBudget) -> "datetime | None":
         t = budget.task
         if not t.due_time:
             return None
         try:
             h, m = map(int, t.due_time.split(":"))
-            dl = datetime.combine(today, time(h, m))
-            return dl if dl > now_dt else None
+            pinned = datetime.combine(today, time(h, m))
+            return pinned if pinned > now_dt else None
         except (ValueError, AttributeError):
             return None
 
-    timed_with_dl: list[tuple[TaskBudget, datetime]] = []
+    def _is_slot_available(start: datetime, end: datetime) -> bool:
+        """Check if a time slot is within work hours and not blocked."""
+        if start < work_start_dt or end > day_end_dt:
+            return False
+        for blk in config.blocked:
+            blk_s = _to_dt(blk.start, today)
+            blk_e = _to_dt(blk.end, today)
+            if start < blk_e and end > blk_s:
+                return False
+        for slot in placed_slots:
+            if start < slot.end and end > slot.start:
+                return False
+        return True
+
+    pinned_normal: list[TaskBudget] = []
+    pinned_low: list[TaskBudget] = []
     untimed_normal: list[TaskBudget] = []
     untimed_low: list[TaskBudget] = []
+
     for b in normal_budgets:
-        dl = _get_finish_by(b)
-        if dl is not None:
-            timed_with_dl.append((b, dl))
+        if _get_pinned_time(b) is not None:
+            pinned_normal.append(b)
         else:
             untimed_normal.append(b)
     for b in low_budgets:
-        dl = _get_finish_by(b)
-        if dl is not None:
-            timed_with_dl.append((b, dl))
+        if _get_pinned_time(b) is not None:
+            pinned_low.append(b)
         else:
             untimed_low.append(b)
 
-    # Earliest Deadline First
-    timed_with_dl.sort(key=lambda x: x[1])
-    timed_overflow: list[TaskBudget] = []
+    pinned_overflow: list[TaskBudget] = []
 
-    for budget, deadline in timed_with_dl:
-        capped = [
-            (iv_s, min(iv_e, deadline), tag)
-            for iv_s, iv_e, tag in scheduleable_intervals
-            if tag == "normal" and iv_s < deadline
-        ]
-        capped = [(s, e, t) for s, e, t in capped if s < e]
+    for budget in pinned_normal + pinned_low:
+        pinned_dt = _get_pinned_time(budget)
+        if pinned_dt is None:
+            pinned_overflow.append(budget)
+            continue
 
-        remaining_list = [budget]
-        for iv_s, iv_e, _ in capped:
-            for free_s, free_e in _free_sub_intervals(iv_s, iv_e):
-                new_slots, remaining_list, _ = _fit_dynamic(remaining_list, free_s, free_e, *fit_args)
-                placed_slots.extend(new_slots)
-                if not remaining_list:
-                    break
-            if not remaining_list:
-                break
-        timed_overflow.extend(remaining_list)
+        duration = budget.task.duration or config.min_chunk_duration
+        end_dt = pinned_dt + timedelta(minutes=duration)
 
-    normal_budgets = untimed_normal + timed_overflow
+        if not _is_slot_available(pinned_dt, end_dt):
+            pinned_overflow.append(budget)
+            continue
+
+        placed_slots.append(
+            ScheduleSlot(
+                start=pinned_dt,
+                end=end_dt,
+                slot_type="task",
+                task=budget.task,
+            )
+        )
+        budget.remaining = 0
+
+    normal_budgets = untimed_normal + pinned_overflow
     low_budgets = untimed_low
 
     # --- Pass 1: fill normal intervals with normal-priority budgets ---
-    # use_free=True so pre-pass slots (from due_time tasks) are respected
+    # use_free=True so pre-pass slots (from pinned tasks) are respected
     normal_budgets, normal_deferred = _run_pass(normal_budgets, "normal", use_free=True)
 
     # --- Pass 1b: fallback — place deferred normal budgets into leftover normal capacity ---
@@ -593,7 +665,9 @@ def build_schedule(
     low_budgets, low_deferred = _run_pass(low_budgets, "normal", use_free=True)
 
     # --- Pass 3: fill low-burn intervals with normal-priority overflow ---
-    normal_budgets, normal_deferred2 = _run_pass(normal_budgets, "low_burn", use_free=True)
+    normal_budgets, normal_deferred2 = _run_pass(
+        normal_budgets, "low_burn", use_free=True
+    )
     normal_deferred2 = _run_fallback(normal_deferred2, "low_burn")
     normal_budgets = normal_budgets + normal_deferred2
 
@@ -604,9 +678,7 @@ def build_schedule(
     low_budgets = low_budgets + low_deferred
 
     # Collect overflow: budgets with remaining time
-    overflow_tasks = [
-        b.task for b in normal_budgets + low_budgets if b.remaining > 0
-    ]
+    overflow_tasks = [b.task for b in normal_budgets + low_budgets if b.remaining > 0]
 
     # --- Assemble full timeline: add blocked periods and gaps ---
     all_slots = list(placed_slots)
@@ -648,7 +720,9 @@ def build_schedule(
             final.append(slot)
             cursor = max(cursor, slot.end)
         if cursor < day_window_end:
-            final.append(ScheduleSlot(start=cursor, end=day_window_end, slot_type="gap"))
+            final.append(
+                ScheduleSlot(start=cursor, end=day_window_end, slot_type="gap")
+            )
     else:
         final = all_slots
 
@@ -657,9 +731,14 @@ def build_schedule(
     # not necessarily ordered, so the index assigned at placement time can be
     # wrong after the final sort.
     from collections import defaultdict
+
     chunked_by_task: dict = defaultdict(list)
     for slot in final:
-        if slot.slot_type == "task" and slot.chunk_index is not None and slot.task is not None:
+        if (
+            slot.slot_type == "task"
+            and slot.chunk_index is not None
+            and slot.task is not None
+        ):
             chunked_by_task[slot.task.id].append(slot)
     for task_slots in chunked_by_task.values():
         task_slots.sort(key=lambda s: s.start)

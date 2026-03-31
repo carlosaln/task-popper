@@ -19,12 +19,18 @@ class Task:
     title: str
     id: str = field(default_factory=_new_id)
     description: str = ""
-    priority_order: int = 0          # lower index = higher priority
-    due_date: Optional[str] = None    # ISO 8601 date or datetime string, e.g. "2025-12-31" or "2025-12-31T14:30"
-    start_date: Optional[str] = None  # not-before constraint: "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM"
-    duration: Optional[int] = None   # duration in minutes, parsed from title suffix
-    time_spent: int = 0              # minutes of work already completed (for chunked progress)
-    due_time: Optional[str] = None   # HH:MM — finish-by time for today's schedule; ignored once expired
+    priority_order: int = 0  # lower index = higher priority
+    due_date: Optional[str] = (
+        None  # ISO 8601 date or datetime string, e.g. "2025-12-31" or "2025-12-31T14:30"
+    )
+    start_date: Optional[str] = (
+        None  # not-before constraint: "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM"
+    )
+    duration: Optional[int] = None  # duration in minutes, parsed from title suffix
+    time_spent: int = 0  # minutes of work already completed (for chunked progress)
+    due_time: Optional[str] = (
+        None  # HH:MM — pinned start time for today's schedule; task starts exactly at this time
+    )
     tags: list[str] = field(default_factory=list)
     completed: bool = False
     completed_at: Optional[str] = None

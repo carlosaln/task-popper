@@ -14,13 +14,20 @@ from rich.text import Text
 from .models import Task
 
 _WEEKDAY_NAMES = {
-    "monday": 0, "mon": 0,
-    "tuesday": 1, "tue": 1,
-    "wednesday": 2, "wed": 2,
-    "thursday": 3, "thu": 3,
-    "friday": 4, "fri": 4,
-    "saturday": 5, "sat": 5,
-    "sunday": 6, "sun": 6,
+    "monday": 0,
+    "mon": 0,
+    "tuesday": 1,
+    "tue": 1,
+    "wednesday": 2,
+    "wed": 2,
+    "thursday": 3,
+    "thu": 3,
+    "friday": 4,
+    "fri": 4,
+    "saturday": 5,
+    "sat": 5,
+    "sunday": 6,
+    "sun": 6,
 }
 
 
@@ -195,13 +202,13 @@ def _format_duration(minutes: int) -> str:
 
 
 def _format_due_time(due_time: str) -> str:
-    """Format 'HH:MM' as a friendly 'by Xpm' string."""
+    """Format 'HH:MM' as a friendly '@ Xpm' string."""
     try:
         h, m = map(int, due_time.split(":"))
         t = datetime(2000, 1, 1, h, m)
-        return f"by {t.strftime('%I:%M%p').lstrip('0').lower()}"
+        return f"@ {t.strftime('%I:%M%p').lstrip('0').lower()}"
     except (ValueError, AttributeError):
-        return f"by {due_time}"
+        return f"@ {due_time}"
 
 
 def _format_due(due_date: str) -> tuple[str, str]:
@@ -232,7 +239,11 @@ def _format_due(due_date: str) -> tuple[str, str]:
         label = f"due in {delta}d{time_suffix}"
         style = "dim"
     else:
-        date_str = due.strftime("%b %-d") if due.year == today.year else due.strftime("%b %-d %Y")
+        date_str = (
+            due.strftime("%b %-d")
+            if due.year == today.year
+            else due.strftime("%b %-d %Y")
+        )
         label = f"due {date_str}{time_suffix}"
         style = "dim"
     return label, style
@@ -274,7 +285,9 @@ class TaskRow(Static):
             text.append(indicator, style="bold green" if self._selected else "dim")
             text.append(self.data.title, style="bold")
             if self.data.tags:
-                text.append("  " + " ".join(f"#{t}" for t in self.data.tags), style="dim cyan")
+                text.append(
+                    "  " + " ".join(f"#{t}" for t in self.data.tags), style="dim cyan"
+                )
             if self.data.due_date:
                 label, style = _format_due(self.data.due_date)
                 text.append(f"  {label}", style=style)
@@ -284,19 +297,16 @@ class TaskRow(Static):
                 try:
                     start_dt = datetime.fromisoformat(self.data.start_date)
                     if start_dt > datetime.now():
-                        start_friendly = start_dt.strftime("%b %-d") if "T" not in self.data.start_date else start_dt.strftime("%b %-d %-I%p").lower()
+                        start_friendly = (
+                            start_dt.strftime("%b %-d")
+                            if "T" not in self.data.start_date
+                            else start_dt.strftime("%b %-d %-I%p").lower()
+                        )
                         text.append(f"  starts {start_friendly}", style="dim")
                 except ValueError:
                     pass
             if self.data.due_time:
-                try:
-                    h, m = map(int, self.data.due_time.split(":"))
-                    now = datetime.now()
-                    deadline_dt = datetime(now.year, now.month, now.day, h, m)
-                    if deadline_dt > now:
-                        text.append(f"  {_format_due_time(self.data.due_time)}", style="yellow")
-                except (ValueError, AttributeError):
-                    pass
+                text.append(f"  {_format_due_time(self.data.due_time)}", style="yellow")
 
         second_line = self.data.description if not self.data.completed else ""
         if second_line:
@@ -450,11 +460,11 @@ class EditTaskModal(ModalScreen):
                 id="start-input",
                 placeholder="e.g. tomorrow, 2026-04-02, 2pm today",
             )
-            yield Label("Finish by (today)", id="due-time-label")
+            yield Label("Pin at (today)", id="due-time-label")
             yield Input(
                 value=self._initial_due_time,
                 id="due-time-input",
-                placeholder="e.g. 4pm, 16:00, noon",
+                placeholder="e.g. 3pm, 15:00, noon (pin to this time)",
             )
             with Horizontal(id="buttons"):
                 yield Button("Save  [enter]", variant="primary", id="btn-save")
@@ -655,7 +665,9 @@ class ScheduleRow(Static):
     }
     """
 
-    def __init__(self, data: "ScheduleSlot", page_index: int, selected: bool, past: bool = False) -> None:  # noqa: F821
+    def __init__(
+        self, data: "ScheduleSlot", page_index: int, selected: bool, past: bool = False
+    ) -> None:  # noqa: F821
         super().__init__()
         self.data = data
         self.page_index = page_index
@@ -709,7 +721,8 @@ class ScheduleRow(Static):
         elif slot.slot_type == "task":
             # Check if all tasks in this slot are completed
             all_completed = (
-                all(t.completed for t in slot.group) if slot.group
+                all(t.completed for t in slot.group)
+                if slot.group
                 else (slot.task and slot.task.completed)
             )
             if all_completed:
@@ -717,11 +730,15 @@ class ScheduleRow(Static):
                 text.append(indicator, style="dim")
                 if slot.group:
                     titles = ", ".join(t.title for t in slot.group)
-                    text.append(f"{len(slot.group)} quick tasks: {titles}", style="dim strike")
+                    text.append(
+                        f"{len(slot.group)} quick tasks: {titles}", style="dim strike"
+                    )
                 elif slot.task:
                     text.append(slot.task.title, style="dim strike")
             else:
-                text.append(time_str, style="bold cyan" if self._selected else "dim cyan")
+                text.append(
+                    time_str, style="bold cyan" if self._selected else "dim cyan"
+                )
                 text.append(indicator, style="bold green" if self._selected else "dim")
 
                 if slot.group:
@@ -735,20 +752,32 @@ class ScheduleRow(Static):
                     task = slot.task
                     if task:
                         text.append(task.title, style="bold")
-                        if slot.chunk_index is not None and slot.total_chunks is not None:
+                        if (
+                            slot.chunk_index is not None
+                            and slot.total_chunks is not None
+                        ):
                             text.append(
                                 f"  [{slot.chunk_index + 1}/{slot.total_chunks}]",
                                 style="bold magenta",
                             )
                         if task.duration:
-                            slot_mins = int((slot.end - slot.start).total_seconds() / 60)
-                            text.append(f"  ~{_format_duration(slot_mins)}", style="dim")
+                            slot_mins = int(
+                                (slot.end - slot.start).total_seconds() / 60
+                            )
+                            text.append(
+                                f"  ~{_format_duration(slot_mins)}", style="dim"
+                            )
                             if slot.total_chunks and slot.total_chunks > 1:
-                                text.append(f" of {_format_duration(task.duration)}", style="dim")
+                                text.append(
+                                    f" of {_format_duration(task.duration)}",
+                                    style="dim",
+                                )
                         if task.due_date:
                             label, style = _format_due(task.due_date)
                             text.append(f"  {label}", style=style)
                         if task.due_time:
-                            text.append(f"  {_format_due_time(task.due_time)}", style="yellow")
+                            text.append(
+                                f"  {_format_due_time(task.due_time)}", style="yellow"
+                            )
 
         return text
