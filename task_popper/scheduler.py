@@ -457,6 +457,20 @@ def build_schedule(
     normal_budgets = all_normal
     low_budgets = all_low
 
+    # Promote short low-priority tasks into the normal tier so they can be
+    # bunched with other short tasks (avoids individual micro-breaks).
+    # Respect explicit low_burn tag preferences — only promote tasks that
+    # landed in low purely due to the criticality cutoff.
+    short_from_low = [
+        b for b in low_budgets
+        if b.remaining <= config.short_task_threshold
+        and _preferred_burn_mode(b.task) != "low_burn"
+    ]
+    if short_from_low:
+        _promoted_ids = {b.task.id for b in short_from_low}
+        low_budgets = [b for b in low_budgets if b.task.id not in _promoted_ids]
+        normal_budgets = normal_budgets + short_from_low
+
     def _budget_fits_interval(
         budget: TaskBudget, iv_s: datetime, iv_e: datetime
     ) -> bool:
